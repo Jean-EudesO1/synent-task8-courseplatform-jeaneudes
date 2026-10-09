@@ -6,19 +6,35 @@ comme base de données.
 
 ## Démarrage local
 
-Depuis un terminal PowerShell, préparez la configuration locale du backend :
+Depuis un terminal PowerShell, préparez la configuration locale du backend
+uniquement si le fichier `.env` n'existe pas déjà :
 
 ```powershell
 Set-Location .\backend
-Copy-Item .env.example .env
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 notepad .env
 npm install
 npm run dev
 ```
 
-Dans `.env`, remplacez l'exemple de `MONGODB_URI` par votre URI MongoDB Atlas.
-Ne partagez pas ce fichier et ne l'ajoutez pas à Git. Le fichier `.env.example`
-ne contient que des valeurs d'exemple.
+Dans `.env`, `MONGODB_URI` doit contenir votre URI MongoDB Atlas. Définissez
+aussi `JWT_SECRET` avec une valeur aléatoire d'au moins 32 octets. Pour ajouter
+une valeur générée localement sans l'afficher dans le terminal, si cette clé
+n'est pas déjà définie dans le fichier :
+
+```powershell
+$randomBytes = New-Object byte[] 48
+$randomGenerator = [Security.Cryptography.RandomNumberGenerator]::Create()
+$randomGenerator.GetBytes($randomBytes)
+$jwtSecret = [Convert]::ToBase64String($randomBytes)
+Add-Content .env "JWT_SECRET=$jwtSecret"
+$randomGenerator.Dispose()
+Remove-Variable randomBytes, randomGenerator
+Remove-Variable jwtSecret
+```
+
+Ne partagez pas `.env` et ne l'ajoutez pas à Git. Le fichier `.env.example` ne
+contient que des valeurs fictives à remplacer localement.
 
 Dans un second terminal PowerShell :
 
