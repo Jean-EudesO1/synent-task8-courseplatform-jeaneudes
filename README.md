@@ -91,8 +91,7 @@ champ `image` d'un cours pour référencer un autre fichier placé dans
 Pour tester l'interface, démarrez le backend et le frontend comme ci-dessous,
 ouvrez `http://localhost:5173/cours`, puis essayez la recherche, les filtres de
 catégorie et de niveau, la pagination et l'ouverture d'une fiche de cours. Les
-cours non publiés ne sont pas visibles dans ce catalogue public. Cette étape
-ne propose pas encore d'inscription aux cours ni de paiement.
+cours non publiés ne sont pas visibles dans ce catalogue public.
 
 Dans un second terminal PowerShell :
 
@@ -110,9 +109,8 @@ MongoDB est confirmé connecté uniquement quand le statut affiché est
 L'API est disponible sur `http://localhost:5000/api/health`.
 
 Les nouveaux comptes restent accessibles dans leur espace avant vérification.
-Les futures routes d'inscription à un cours devront utiliser le middleware
-`requireVerifiedEmail`. Les jetons d'e-mail expirent après 24 heures et les
-jetons de réinitialisation après une heure.
+Les jetons d'e-mail expirent après 24 heures et les jetons de réinitialisation
+après une heure.
 
 ## Administration des cours
 
@@ -141,5 +139,59 @@ enregistrer ou publier le cours. Le prix doit être un entier en paise
 (par exemple `49900` pour ₹499,00), et les URL vidéo doivent commencer par
 `http://` ou `https://`. La publication rend le cours visible dans le catalogue
 public ; les brouillons et contenus vidéo/privés restent masqués des routes
-publiques. Cette étape n'ajoute ni paiement, ni inscription aux cours, ni
-lecteur vidéo, ni liste d'utilisateurs.
+publiques.
+
+## Paiement test et inscriptions aux cours
+
+**État de validation : le paiement réel avec Razorpay Checkout en mode Test
+n'est pas validé.** L'inscription Razorpay bloque actuellement l'accès aux clés
+de test. Jusqu'à ce que cet accès soit débloqué, seuls les tests automatisés
+avec un service Razorpay factice ont été réalisés. Ces tests ne contactent pas
+Razorpay, n'ouvrent pas Checkout et ne constituent pas la validation d'un
+paiement réel, même en mode Test. N'annoncez donc pas ce flux comme vérifié de
+bout en bout.
+
+Quand l'accès aux clés sera disponible, le backend pourra utiliser les clés
+Razorpay de test. Pour les obtenir :
+
+1. Créez ou ouvrez votre compte sur le tableau de bord Razorpay développeur.
+2. Activez le mode **Test** (pas le mode Live).
+3. Dans **Account & Settings → API Keys**, générez ou affichez les clés de test.
+4. Ajoutez les deux valeurs directement dans votre fichier local
+   `backend/.env` :
+
+```text
+RAZORPAY_KEY_ID=rzp_test_votreKeyId
+RAZORPAY_KEY_SECRET=votreSecretDeTest
+```
+
+Ne collez pas ces valeurs dans le chat et ne les ajoutez jamais à Git. Seule la
+Key ID publique est transmise au navigateur au moment d'ouvrir Checkout ; la
+Key Secret reste exclusivement dans le backend. L'application refuse les
+identifiants Live et n'accorde jamais d'accès si les clés ne sont pas
+configurées. Dans ce cas, l'API renvoie une erreur explicite indiquant de
+configurer `RAZORPAY_KEY_ID` et `RAZORPAY_KEY_SECRET` ; elle ne simule pas de
+paiement réussi. Redémarrez le backend après l'ajout des variables.
+
+Un utilisateur doit être connecté et avoir vérifié son adresse e-mail pour
+commander. Le backend calcule le montant en paise depuis le cours publié en
+base, vérifie la signature puis relit le paiement auprès de Razorpay ; seule la
+confirmation d'un paiement capturé crée l'inscription. Les confirmations sont
+idempotentes, et les écritures de paiement/inscription sont transactionnelles
+pour pouvoir retenter une confirmation si la base rencontre une erreur après
+la capture. Les cours avec des inscriptions ne peuvent pas être supprimés :
+l'administration permet de les archiver.
+
+Un essai réel restera à effectuer après obtention des clés : configurer les
+clés de test, ouvrir un cours publié avec un compte dont l'adresse est vérifiée,
+puis suivre « S'inscrire maintenant » dans Razorpay Checkout en mode Test.
+Il faudra vérifier également l'annulation et confirmer que « Mes cours »
+n'affiche l'inscription qu'après validation du paiement capturé par le backend.
+
+Les tests automatisés utilisent un client Razorpay factice : ils vérifient la
+signature, les montants, la devise, l'utilisateur, l'état capturé, les
+confirmations répétées et l'accès aux inscriptions, sans contacter Razorpay ni
+effectuer de débit. Ils constituent les seuls tests Razorpay réalisés à ce
+stade et ne remplacent pas l'essai Checkout réel qui reste bloqué par l'accès
+aux clés de test. Cette étape n'ajoute pas encore de lecteur vidéo ni de suivi
+de progression.

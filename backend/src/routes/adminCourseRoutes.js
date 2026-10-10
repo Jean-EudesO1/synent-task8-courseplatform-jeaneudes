@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import {
+  archiveAdminCourse,
   createAdminCourse,
   deleteAdminCourse,
   listAdminCourses,
@@ -16,6 +17,7 @@ router.use(requireAuth, requireRole('admin'))
 router.get('/', listAdminCourses)
 router.post('/', requireCsrf, validateAdminCourse, createAdminCourse)
 router.put('/:id', requireCsrf, validateAdminCourse, updateAdminCourse)
+router.patch('/:id/archive', requireCsrf, archiveAdminCourse)
 router.delete('/:id', requireCsrf, deleteAdminCourse)
 
 export default router

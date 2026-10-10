@@ -95,9 +95,15 @@ const courseSchema = new mongoose.Schema(
     status: {
       type: String,
       required: true,
-      enum: ['draft', 'published'],
+      enum: ['draft', 'published', 'archived'],
       default: 'draft',
       index: true,
+    },
+    enrollmentCount: {
+      type: Number,
+      min: 0,
+      default: 0,
+      select: false,
     },
     modules: {
       type: [moduleSchema],

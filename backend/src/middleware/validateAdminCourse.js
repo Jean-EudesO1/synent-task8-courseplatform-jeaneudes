@@ -1,5 +1,5 @@
 const levels = new Set(['Débutant', 'Intermédiaire', 'Avancé'])
-const statuses = new Set(['draft', 'published'])
+const statuses = new Set(['draft', 'published', 'archived'])
 const courseFields = new Set([
   'title',
   'description',
@@ -121,7 +121,7 @@ export function validateAdminCourse(request, response, next) {
       throw fail('La devise autorisée est INR.')
     }
     if (!statuses.has(course.status)) {
-      throw fail('Le statut doit être draft ou published.')
+      throw fail('Le statut doit être draft, published ou archived.')
     }
     if (course.image !== undefined && (
       typeof course.image !== 'string' || course.image.length > 2048

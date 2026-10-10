@@ -346,6 +346,9 @@ function Dashboard() {
       <Link className="primary-button button-link dashboard-catalog-link" to="/cours">
         Découvrir le catalogue
       </Link>
+      <Link className="secondary-button button-link dashboard-catalog-link" to="/mes-cours">
+        Mes cours
+      </Link>
       {health.state === 'loading' && (
         <p className="health-line" role="status">Vérification de l’API…</p>
       )}
@@ -715,10 +718,45 @@ function CourseCatalogPage() {
 }
 
 function CourseDetailsPage() {
+  const { user, postWithCsrf } = useAuth()
   const { id } = useParams()
   const [course, setCourse] = useState(null)
   const [state, setState] = useState('loading')
   const [error, setError] = useState('')
+  const [owned, setOwned] = useState(false)
+  const [ownershipState, setOwnershipState] = useState('loading')
+  const [ownershipError, setOwnershipError] = useState('')
+  const [paymentState, setPaymentState] = useState('idle')
+  const [paymentMessage, setPaymentMessage] = useState('')
+  const [confirmationPayload, setConfirmationPayload] = useState(null)
+
+  useEffect(() => {
+    let active = true
+    if (!user) {
+      setOwned(false)
+      setOwnershipError('')
+      setOwnershipState('ready')
+      return () => { active = false }
+    }
+
+    setOwned(false)
+    setOwnershipError('')
+    setOwnershipState('loading')
+    fetch('/api/enrollments/me', { credentials: 'include' })
+      .then((response) => readApiResponse(response, '/api/enrollments/me'))
+      .then((data) => {
+        if (!active) return
+        setOwned(data.enrollments.some((enrollment) => enrollment.course.id === id))
+        setOwnershipState('ready')
+      })
+      .catch(() => {
+        if (active) {
+          setOwnershipError('Impossible de vérifier votre inscription. Rechargez la page avant de commander.')
+          setOwnershipState('error')
+        }
+      })
+    return () => { active = false }
+  }, [id, user])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -740,6 +778,76 @@ function CourseDetailsPage() {
 
     return () => controller.abort()
   }, [id])
+
+  async function confirmPayment(payload) {
+    setPaymentState('confirming')
+    setPaymentMessage('Vérification du paiement auprès de notre serveur…')
+    try {
+      const confirmation = await postWithCsrf('/api/confirm', {
+        razorpay_order_id: payload.razorpay_order_id,
+        razorpay_payment_id: payload.razorpay_payment_id,
+        razorpay_signature: payload.razorpay_signature,
+      })
+      if (confirmation.status !== 'enrolled') {
+        throw new Error('L’inscription n’a pas été confirmée par le serveur.')
+      }
+      setOwned(true)
+      setConfirmationPayload(null)
+      setPaymentState('success')
+      setPaymentMessage(confirmation.message)
+    } catch (confirmationError) {
+      setConfirmationPayload(payload)
+      setPaymentState('error')
+      setPaymentMessage(confirmationError.message)
+    }
+  }
+
+  async function startCheckout() {
+    setPaymentState('creating')
+    setPaymentMessage('')
+    try {
+      const checkoutScript = await loadRazorpayCheckout()
+      const orderData = await postWithCsrf('/api/orders', { courseId: id })
+      if (!checkoutScript || typeof window.Razorpay !== 'function') {
+        throw new Error('Razorpay Checkout n’a pas pu être chargé. Vérifiez votre connexion et réessayez.')
+      }
+
+      let confirmationStarted = false
+      let paymentFailed = false
+      const checkout = new window.Razorpay({
+        key: orderData.keyId,
+        amount: orderData.order.amount,
+        currency: orderData.order.currency,
+        name: 'Plateforme de cours',
+        description: orderData.course.title,
+        order_id: orderData.order.id,
+        prefill: { name: user.name, email: user.email },
+        handler: async (result) => {
+          confirmationStarted = true
+          await confirmPayment(result)
+        },
+        modal: {
+          ondismiss: () => {
+            if (!confirmationStarted && !paymentFailed) {
+              setPaymentState('cancelled')
+              setPaymentMessage('Paiement annulé. Aucun accès au cours n’a été accordé.')
+            }
+          },
+        },
+        theme: { color: '#176b50' },
+      })
+      checkout.on('payment.failed', (result) => {
+        paymentFailed = true
+        setPaymentState('error')
+        setPaymentMessage(result.error?.description || 'Le paiement a échoué. Aucun accès au cours n’a été accordé.')
+      })
+      setPaymentState('checkout')
+      checkout.open()
+    } catch (checkoutError) {
+      setPaymentState('error')
+      setPaymentMessage(checkoutError.message)
+    }
+  }
 
   if (state === 'loading') return <p className="notice" role="status">Chargement du cours…</p>
   if (state === 'error') {
@@ -766,6 +874,60 @@ function CourseDetailsPage() {
         <h1>{course.title}</h1>
         <p className="details-description">{course.description}</p>
         <p className="details-price">{formatPrice(course.price, course.currency)}</p>
+        <section className="enrollment-action">
+          {owned ? (
+            <>
+              <p className="enrollment-owned" role="status">Vous êtes inscrit à ce cours.</p>
+              <Link className="primary-button button-link" to="/mes-cours">Voir mes cours</Link>
+            </>
+          ) : !user ? (
+            <Link className="primary-button button-link" to="/connexion">
+              Connectez-vous pour vous inscrire
+            </Link>
+          ) : !user.emailVerified ? (
+            <p className="notice">Vérifiez votre adresse e-mail depuis votre espace avant de commander ce cours.</p>
+          ) : ownershipError ? (
+            <p className="notice error" role="alert">{ownershipError}</p>
+          ) : (
+            <>
+              <button
+                className="primary-button"
+                disabled={ownershipState !== 'ready' || ['creating', 'checkout', 'confirming'].includes(paymentState)}
+                onClick={startCheckout}
+                type="button"
+              >
+                {paymentState === 'creating'
+                  ? 'Préparation du paiement…'
+                  : paymentState === 'confirming'
+                    ? 'Confirmation du paiement…'
+                    : 'S’inscrire maintenant'}
+              </button>
+              {paymentState === 'cancelled' && (
+                <p className="notice" role="status">{paymentMessage}</p>
+              )}
+              {paymentState === 'confirming' && (
+                <p className="notice" role="status">{paymentMessage}</p>
+              )}
+              {paymentState === 'success' && (
+                <p className="notice enrollment-owned" role="status">{paymentMessage}</p>
+              )}
+              {paymentState === 'error' && (
+                <>
+                  <p className="notice error" role="alert">{paymentMessage}</p>
+                  {confirmationPayload && (
+                    <button
+                      className="secondary-button"
+                      onClick={() => confirmPayment(confirmationPayload)}
+                      type="button"
+                    >
+                      Réessayer la confirmation côté serveur
+                    </button>
+                  )}
+                </>
+              )}
+            </>
+          )}
+        </section>
         <section className="curriculum">
           <h2>Programme du cours</h2>
           {course.modules.length === 0 ? (
@@ -792,6 +954,103 @@ function CourseDetailsPage() {
         </section>
       </div>
     </article>
+  )
+}
+
+function loadRazorpayCheckout() {
+  if (window.Razorpay) return Promise.resolve(true)
+  const existing = document.querySelector('script[data-razorpay-checkout]')
+  if (existing) {
+    if (existing.dataset.loaded === 'true') {
+      return Promise.reject(new Error('Razorpay Checkout n’a pas pu être initialisé. Rechargez la page et réessayez.'))
+    }
+    return new Promise((resolve, reject) => {
+      existing.addEventListener('load', () => resolve(true), { once: true })
+      existing.addEventListener('error', () => reject(new Error('Impossible de charger Razorpay Checkout.')), { once: true })
+    })
+  }
+
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script')
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js'
+    script.async = true
+    script.dataset.razorpayCheckout = 'true'
+    script.onload = () => {
+      script.dataset.loaded = 'true'
+      resolve(true)
+    }
+    script.onerror = () => reject(new Error('Impossible de charger Razorpay Checkout.'))
+    document.body.appendChild(script)
+  })
+}
+
+function MyCoursesPage() {
+  const [enrollments, setEnrollments] = useState([])
+  const [state, setState] = useState('loading')
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    const controller = new AbortController()
+    fetch('/api/enrollments/me', {
+      credentials: 'include',
+      signal: controller.signal,
+    })
+      .then((response) => readApiResponse(response, '/api/enrollments/me'))
+      .then((data) => {
+        setEnrollments(data.enrollments)
+        setState('success')
+      })
+      .catch((requestError) => {
+        if (requestError.name === 'AbortError') return
+        setError(requestError.message)
+        setState('error')
+      })
+    return () => controller.abort()
+  }, [])
+
+  return (
+    <section className="catalog-page">
+      <div className="catalog-heading">
+        <p className="eyebrow">Votre apprentissage</p>
+        <h1>Mes cours</h1>
+        <p className="intro">Retrouvez ici les cours auxquels votre inscription est confirmée.</p>
+      </div>
+      {state === 'loading' && <p className="notice" role="status">Chargement de vos cours…</p>}
+      {state === 'error' && <p className="notice error" role="alert">Impossible de charger vos cours : {error}</p>}
+      {state === 'success' && enrollments.length === 0 && (
+        <div className="empty-my-courses">
+          <p className="notice" role="status">Vous n’êtes inscrit à aucun cours pour le moment.</p>
+          <Link className="primary-button button-link" to="/cours">Explorer le catalogue</Link>
+        </div>
+      )}
+      {state === 'success' && enrollments.length > 0 && (
+        <div className="course-grid">
+          {enrollments.map(({ id: enrollmentId, enrolledAt, course }) => (
+            <article className="course-card" key={enrollmentId}>
+              <Link className="course-card-link" to={`/cours/${course.id}`}>
+                <img
+                  alt=""
+                  className="course-image"
+                  onError={(event) => { event.currentTarget.src = '/courses/course-placeholder.svg' }}
+                  src={course.image || '/courses/course-placeholder.svg'}
+                />
+                <div className="course-card-content">
+                  <span className="course-category">{course.category}</span>
+                  <h2>{course.title}</h2>
+                  <span className={`status-pill ${course.status === 'published' ? 'published' : ''}`}>
+                    {course.status === 'archived' ? 'Archivé' : 'Inscription confirmée'}
+                  </span>
+                  <span className="enrollment-date">
+                    Inscrit le {new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium' }).format(new Date(enrolledAt))}
+                  </span>
+                  <span className="course-price">{formatPrice(course.price, course.currency)}</span>
+                </div>
+              </Link>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
   )
 }
 
@@ -989,6 +1248,26 @@ function AdminPage() {
     }
   }
 
+  async function archiveCourse(item) {
+    if (!window.confirm(`Archiver « ${item.title} » ? Il ne sera plus visible dans le catalogue public.`)) return
+    setError('')
+    setMessage('')
+    try {
+      const result = await requestWithCsrf(`/api/admin/courses/${item._id}/archive`, {
+        method: 'PATCH',
+      })
+      setCourses((current) => current.map((entry) => (
+        entry._id === item._id ? { ...entry, status: result.course.status } : entry
+      )))
+      if (selectedId === item._id) {
+        setCourse((current) => ({ ...current, status: 'archived' }))
+      }
+      setMessage(result.message)
+    } catch (requestError) {
+      setError(requestError.message)
+    }
+  }
+
   return (
     <section className="admin-page">
       <div className="admin-heading">
@@ -1020,17 +1299,28 @@ function AdminPage() {
                   <button className="admin-course-select" onClick={() => editCourse(item)} type="button">
                     <strong>{item.title}</strong>
                     <span className={`status-pill ${item.status}`}>
-                      {item.status === 'published' ? 'Publié' : 'Brouillon'}
+                      {item.status === 'published' ? 'Publié' : item.status === 'archived' ? 'Archivé' : 'Brouillon'}
                     </span>
                   </button>
-                  <button
-                    aria-label={`Supprimer ${item.title}`}
-                    className="delete-course-button"
-                    onClick={() => deleteCourse(item)}
-                    type="button"
-                  >
-                    Supprimer
-                  </button>
+                  {item.enrollmentCount > 0 ? (
+                    <button
+                      aria-label={`Archiver ${item.title}`}
+                      className="delete-course-button"
+                      onClick={() => archiveCourse(item)}
+                      type="button"
+                    >
+                      Archiver
+                    </button>
+                  ) : (
+                    <button
+                      aria-label={`Supprimer ${item.title}`}
+                      className="delete-course-button"
+                      onClick={() => deleteCourse(item)}
+                      type="button"
+                    >
+                      Supprimer
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
@@ -1099,6 +1389,7 @@ function AdminPage() {
               <select onChange={(event) => updateCourse('status', event.target.value)} value={course.status}>
                 <option value="draft">Brouillon</option>
                 <option value="published">Publié</option>
+                <option value="archived">Archivé</option>
               </select>
             </label>
             <label className="admin-field-wide">
@@ -1300,6 +1591,7 @@ function SiteHeader() {
           {user ? (
             <>
               <Link to="/">Mon espace</Link>
+              <Link to="/mes-cours">Mes cours</Link>
               {user.role === 'admin' && <Link to="/administration">Administration</Link>}
               <button className="nav-button" disabled={busy} onClick={handleSignOut} type="button">
                 {busy ? 'Déconnexion…' : 'Déconnexion'}
@@ -1332,6 +1624,7 @@ function AppRoutes() {
           <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/cours" element={<CourseCatalogPage />} />
           <Route path="/cours/:id" element={<CourseDetailsPage />} />
+          <Route path="/mes-cours" element={<ProtectedRoute><MyCoursesPage /></ProtectedRoute>} />
           <Route
             path="/administration"
             element={<ProtectedRoute><AdminRoute><AdminPage /></AdminRoute></ProtectedRoute>}
