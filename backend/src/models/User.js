@@ -28,6 +28,16 @@ const userSchema = new mongoose.Schema(
       default: 'student',
       required: true,
     },
+    emailVerified: {
+      type: Boolean,
+      default: false,
+      required: true,
+    },
+    tokenVersion: {
+      type: Number,
+      default: 0,
+      required: true,
+    },
   },
   { timestamps: true },
 )

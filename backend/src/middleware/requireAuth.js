@@ -15,7 +15,11 @@ export async function requireAuth(request, response, next) {
     })
     const user = await User.findById(payload.sub)
 
-    if (!user || user.role !== payload.role) {
+    if (
+      !user
+      || user.role !== payload.role
+      || (user.tokenVersion || 0) !== (payload.tokenVersion || 0)
+    ) {
       return response.status(401).json({ message: 'Session invalide. Reconnectez-vous.' })
     }
 

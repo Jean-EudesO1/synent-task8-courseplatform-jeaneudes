@@ -202,6 +202,58 @@ button:disabled {
   font-size: 0.9rem;
 }
 
+.verification-status {
+  display: grid;
+  gap: 10px;
+  margin: 20px 0;
+  padding: 18px;
+  border: 1px solid #e6d9ac;
+  border-radius: 12px;
+  background: #fffaf0;
+  color: #594b21;
+}
+
+.verification-status.verified {
+  border-color: #c8e4d8;
+  background: #f0faf5;
+  color: #174a39;
+}
+
+.verification-status p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.text-button {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #176b50;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.action-message {
+  color: #174a39;
+  font-weight: 600;
+}
+
+.full-button {
+  width: 100%;
+  margin-top: 20px;
+}
+
+.button-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
 @media (max-width: 520px) {
   .site-header,
   .page-content {

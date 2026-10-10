@@ -1,38 +1,57 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
 import {
   BrowserRouter,
   Link,
   Navigate,
   Route,
   Routes,
+  useSearchParams,
   useNavigate,
 } from 'react-router-dom'
-import { readApiResponse } from './api.js'
+import { postWithCsrf, readApiResponse } from './api.js'
 import './App.css'
 
 const AuthContext = createContext(null)
 
 function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
-  const [csrfToken, setCsrfToken] = useState('')
   const [authState, setAuthState] = useState('loading')
   const [sessionError, setSessionError] = useState('')
+  const sessionRequestId = useRef(0)
+  const channelRef = useRef(null)
+
+  const refreshSession = useCallback(async () => {
+    const requestId = ++sessionRequestId.current
+    const response = await fetch('/api/auth/me', { credentials: 'include' })
+    if (response.status === 401) {
+      if (requestId === sessionRequestId.current) setUser(null)
+      return null
+    }
+
+    const data = await readApiResponse(response, '/api/auth/me')
+    if (requestId === sessionRequestId.current) setUser(data.user)
+    return data.user
+  }, [])
 
   useEffect(() => {
     let active = true
 
-    Promise.all([
-      fetch('/api/auth/csrf', { credentials: 'include' })
-        .then((response) => readApiResponse(response, '/api/auth/csrf')),
-      fetch('/api/auth/me', { credentials: 'include' }).then(async (response) => {
-        if (response.status === 401) return null
-        return readApiResponse(response, '/api/auth/me')
-      }),
-    ])
-      .then(([csrf, session]) => {
+    async function initialize() {
+      const csrfResponse = await fetch('/api/auth/csrf', { credentials: 'include' })
+      await readApiResponse(csrfResponse, '/api/auth/csrf')
+      return refreshSession()
+    }
+
+    initialize()
+      .then(() => {
         if (!active) return
-        setCsrfToken(csrf.csrfToken)
-        setUser(session?.user || null)
         setAuthState('ready')
       })
       .catch((error) => {
@@ -46,32 +65,52 @@ function AuthProvider({ children }) {
     }
   }, [])
 
-  async function authenticate(path, credentials) {
-    if (!csrfToken) throw new Error('Jeton de sécurité indisponible. Rechargez la page.')
+  useEffect(() => {
+    let active = true
+    const syncSession = () => {
+      refreshSession().catch((error) => {
+        if (active) setSessionError(error.message)
+      })
+    }
 
-    const data = await fetch(path, {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRF-Token': csrfToken,
-      },
-      body: JSON.stringify(credentials),
-    }).then((response) => readApiResponse(response, path))
+    if (typeof BroadcastChannel !== 'undefined') {
+      channelRef.current = new BroadcastChannel('course-platform-auth')
+      channelRef.current.addEventListener('message', (event) => {
+        if (event.data?.type === 'session-changed') syncSession()
+      })
+    } else {
+      window.addEventListener('storage', syncSession)
+    }
+
+    return () => {
+      active = false
+      channelRef.current?.close()
+      channelRef.current = null
+      window.removeEventListener('storage', syncSession)
+    }
+  }, [refreshSession])
+
+  function publishSessionChange() {
+    if (typeof BroadcastChannel !== 'undefined') {
+      channelRef.current?.postMessage({ type: 'session-changed' })
+      return
+    }
+
+    localStorage.setItem('course-platform-auth-changed', String(Date.now()))
+  }
+
+  async function authenticate(path, credentials) {
+    const data = await postWithCsrf(path, credentials)
 
     setUser(data.user)
+    publishSessionChange()
   }
 
   async function signOut() {
-    if (!csrfToken) throw new Error('Jeton de sécurité indisponible. Rechargez la page.')
-
-    await fetch('/api/auth/logout', {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'X-CSRF-Token': csrfToken },
-    }).then((response) => readApiResponse(response, '/api/auth/logout'))
+    await postWithCsrf('/api/auth/logout', {})
 
     setUser(null)
+    publishSessionChange()
   }
 
   return (
@@ -81,6 +120,9 @@ function AuthProvider({ children }) {
       sessionError,
       authenticate,
       signOut,
+      postWithCsrf,
+      refreshSession,
+      publishSessionChange,
     }}>
       {children}
     </AuthContext.Provider>
@@ -204,14 +246,21 @@ function AuthForm({ mode }) {
           {isRegister ? 'Se connecter' : 'Créer un compte'}
         </Link>
       </p>
+      {!isRegister && (
+        <p className="form-footer">
+          <Link to="/mot-de-passe-oublie">Mot de passe oublié ?</Link>
+        </p>
+      )}
     </section>
   )
 }
 
 function Dashboard() {
-  const { user, signOut } = useAuth()
+  const { user, signOut, postWithCsrf, refreshSession } = useAuth()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [verificationMessage, setVerificationMessage] = useState('')
+  const [verificationError, setVerificationError] = useState('')
   const [health, setHealth] = useState({ state: 'loading', data: null })
 
   useEffect(() => {
@@ -233,11 +282,46 @@ function Dashboard() {
     }
   }
 
+  async function handleResendVerification() {
+    setLoading(true)
+    setVerificationMessage('')
+    setVerificationError('')
+    try {
+      const result = await postWithCsrf('/api/auth/verification/resend', {})
+      setVerificationMessage(result.message)
+    } catch (requestError) {
+      setVerificationError(requestError.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
     <section className="panel dashboard-panel">
       <p className="eyebrow">Espace étudiant</p>
       <h1>Bonjour, {user.name}</h1>
       <p className="intro">Vous êtes connecté à votre espace personnel.</p>
+      <section className={`verification-status ${user.emailVerified ? 'verified' : 'unverified'}`}>
+        <p>
+          Adresse e-mail : <strong>{user.emailVerified ? 'vérifiée' : 'non vérifiée'}</strong>
+        </p>
+        {!user.emailVerified && (
+          <>
+            <p>Vous pouvez consulter votre espace. La vérification sera requise pour les futures inscriptions aux cours.</p>
+            <button
+              className="text-button"
+              disabled={loading}
+              onClick={handleResendVerification}
+              type="button"
+            >
+              Renvoyer l’e-mail de vérification
+            </button>
+          </>
+        )}
+        {verificationMessage && <p className="action-message" role="status">{verificationMessage}</p>}
+        {verificationError && <p className="notice error" role="alert">{verificationError}</p>}
+      </section>
+
       <div className="account-details">
         <span>Adresse e-mail</span>
         <strong>{user.email}</strong>
@@ -268,6 +352,183 @@ function Dashboard() {
   )
 }
 
+function VerifyEmailPage() {
+  const { postWithCsrf, refreshSession, publishSessionChange } = useAuth()
+  const [searchParams] = useSearchParams()
+  const [state, setState] = useState('idle')
+  const [message, setMessage] = useState('')
+  const token = searchParams.get('token')
+
+  async function handleVerify() {
+    if (!token) {
+      setState('error')
+      setMessage('Le lien de vérification est incomplet ou invalide.')
+      return
+    }
+
+    setState('loading')
+    setMessage('')
+    try {
+      const result = await postWithCsrf('/api/auth/verify-email', { token })
+      await refreshSession()
+      publishSessionChange()
+      setState('success')
+      setMessage(result.message)
+    } catch (error) {
+      setState('error')
+      setMessage(error.message)
+    }
+  }
+
+  return (
+    <section className="panel auth-panel">
+      <p className="eyebrow">Vérification de l’adresse</p>
+      <h1>Vérifier mon e-mail</h1>
+      <p className="intro">Confirmez votre adresse pour pouvoir vous inscrire aux cours.</p>
+      {message && (
+        <p className={`notice ${state === 'error' ? 'error' : ''}`} role={state === 'error' ? 'alert' : 'status'}>
+          {message}
+        </p>
+      )}
+      {state !== 'success' && (
+        <button
+          className="primary-button full-button"
+          disabled={state === 'loading'}
+          onClick={handleVerify}
+          type="button"
+        >
+          {state === 'loading' ? 'Vérification…' : 'Confirmer mon adresse e-mail'}
+        </button>
+      )}
+      <p className="form-footer"><Link to="/">Retour à mon espace</Link></p>
+    </section>
+  )
+}
+
+function ForgotPasswordPage() {
+  const { postWithCsrf } = useAuth()
+  const [email, setEmail] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+
+  async function handleSubmit(event) {
+    event.preventDefault()
+    setLoading(true)
+    setMessage('')
+    setError('')
+    try {
+      const result = await postWithCsrf('/api/auth/forgot-password', { email })
+      setMessage(result.message)
+    } catch (requestError) {
+      setError(requestError.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <section className="panel auth-panel">
+      <p className="eyebrow">Récupération du compte</p>
+      <h1>Mot de passe oublié</h1>
+      <p className="intro">Saisissez l’adresse associée à votre compte. Si elle existe, un lien de réinitialisation vous sera envoyé.</p>
+      <form className="auth-form" onSubmit={handleSubmit}>
+        <label>
+          Adresse e-mail
+          <input
+            autoComplete="email"
+            onChange={(event) => setEmail(event.target.value)}
+            required
+            type="email"
+            value={email}
+          />
+        </label>
+        {message && <p className="notice" role="status">{message}</p>}
+        {error && <p className="notice error" role="alert">{error}</p>}
+        <button className="primary-button" disabled={loading} type="submit">
+          {loading ? 'Envoi…' : 'Demander un lien'}
+        </button>
+      </form>
+      <p className="form-footer"><Link to="/connexion">Retour à la connexion</Link></p>
+    </section>
+  )
+}
+
+function ResetPasswordPage() {
+  const { postWithCsrf, refreshSession, publishSessionChange } = useAuth()
+  const [searchParams] = useSearchParams()
+  const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+  const token = searchParams.get('token')
+
+  async function handleSubmit(event) {
+    event.preventDefault()
+    setLoading(true)
+    setMessage('')
+    setError('')
+    try {
+      const result = await postWithCsrf('/api/auth/reset-password', {
+        token,
+        password,
+        confirmPassword,
+      })
+      await refreshSession()
+      publishSessionChange()
+      setMessage(result.message)
+    } catch (requestError) {
+      setError(requestError.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <section className="panel auth-panel">
+      <p className="eyebrow">Sécurité du compte</p>
+      <h1>Nouveau mot de passe</h1>
+      <p className="intro">Choisissez un nouveau mot de passe d’au moins 8 caractères et confirmez-le.</p>
+      {!token && <p className="notice error" role="alert">Ce lien est incomplet ou invalide. Demandez une nouvelle réinitialisation.</p>}
+      <form className="auth-form" onSubmit={handleSubmit}>
+        <label>
+          Nouveau mot de passe
+          <input
+            autoComplete="new-password"
+            minLength={8}
+            onChange={(event) => setPassword(event.target.value)}
+            required
+            type="password"
+            value={password}
+          />
+        </label>
+        <label>
+          Confirmer le mot de passe
+          <input
+            autoComplete="new-password"
+            minLength={8}
+            onChange={(event) => setConfirmPassword(event.target.value)}
+            required
+            type="password"
+            value={confirmPassword}
+          />
+        </label>
+        {message && <p className="notice" role="status">{message}</p>}
+        {error && <p className="notice error" role="alert">{error}</p>}
+        {message.includes('Reconnectez-vous') ? (
+          <Link className="primary-button button-link" to="/connexion">Aller à la connexion</Link>
+        ) : (
+          <button className="primary-button" disabled={loading || !token} type="submit">
+            {loading ? 'Modification…' : 'Modifier le mot de passe'}
+          </button>
+        )}
+      </form>
+      <p className="form-footer"><Link to="/connexion">Retour à la connexion</Link></p>
+    </section>
+  )
+}
+
 function AppRoutes() {
   const { authState, sessionError } = useAuth()
 
@@ -288,6 +549,9 @@ function AppRoutes() {
           <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/connexion" element={<GuestRoute><AuthForm mode="login" /></GuestRoute>} />
           <Route path="/inscription" element={<GuestRoute><AuthForm mode="register" /></GuestRoute>} />
+          <Route path="/verify-email" element={<VerifyEmailPage />} />
+          <Route path="/mot-de-passe-oublie" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

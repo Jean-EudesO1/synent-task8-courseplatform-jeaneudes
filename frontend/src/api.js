@@ -39,3 +39,59 @@ export async function readApiResponse(response, endpoint = 'requête API') {
 
   return data
 }
+
+export function getCsrfCookie(cookieString = document.cookie) {
+  const cookie = cookieString
+    .split(';')
+    .map((part) => part.trim())
+    .find((part) => part.startsWith('csrf_token='))
+
+  return cookie ? decodeURIComponent(cookie.slice('csrf_token='.length)) : ''
+}
+
+async function bootstrapCsrfCookie() {
+  const response = await fetch('/api/auth/csrf', { credentials: 'include' })
+  await readApiResponse(response, '/api/auth/csrf')
+}
+
+export async function postWithCsrf(path, body) {
+  let csrfToken = getCsrfCookie()
+  if (!csrfToken) {
+    await bootstrapCsrfCookie()
+    csrfToken = getCsrfCookie()
+  }
+  if (!csrfToken) {
+    throw new Error('Jeton de sécurité indisponible. Rechargez la page.')
+  }
+
+  const response = await fetch(path, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRF-Token': csrfToken,
+    },
+    body: JSON.stringify(body),
+  })
+
+  try {
+    return await readApiResponse(response, path)
+  } catch (error) {
+    if (
+      response.status === 403
+      && error.message.includes('Jeton CSRF absent ou invalide')
+    ) {
+      try {
+        await bootstrapCsrfCookie()
+      } catch {
+        throw error
+      }
+
+      throw new Error(
+        'La requête a été refusée car le jeton de sécurité était périmé. Il a été actualisé ; recommencez manuellement cette action.',
+      )
+    }
+
+    throw error
+  }
+}

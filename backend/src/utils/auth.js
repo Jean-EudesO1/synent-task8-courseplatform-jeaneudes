@@ -18,7 +18,7 @@ export function assertAuthConfiguration() {
 export function createAuthToken(user) {
   assertAuthConfiguration()
   return jwt.sign(
-    { role: user.role },
+    { role: user.role, tokenVersion: user.tokenVersion || 0 },
     process.env.JWT_SECRET,
     { subject: String(user._id), expiresIn: '1h', issuer: 'synent-course-platform' },
   )

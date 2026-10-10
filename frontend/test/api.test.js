@@ -1,6 +1,18 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { readApiResponse } from '../src/api.js'
+import { getCsrfCookie, postWithCsrf, readApiResponse } from '../src/api.js'
+
+test('lit le jeton CSRF courant du cookie sans conserver de cache local', () => {
+  assert.equal(
+    getCsrfCookie('theme=light; csrf_token=first-token; other=value'),
+    'first-token',
+  )
+  assert.equal(
+    getCsrfCookie('theme=light; csrf_token=second-token; other=value'),
+    'second-token',
+  )
+  assert.equal(getCsrfCookie('theme=light'), '')
+})
 
 test('lit une réponse JSON valide', async () => {
   const response = new Response(JSON.stringify({ user: { name: 'Test' } }), {
@@ -51,4 +63,45 @@ test('accepte une réponse de déconnexion sans corps', async () => {
   const response = new Response(null, { status: 204 })
 
   assert.equal(await readApiResponse(response, '/api/auth/logout'), null)
+})
+
+test('synchronise un CSRF périmé sans rejouer la mutation refusée', async () => {
+  const originalDocument = globalThis.document
+  const originalFetch = globalThis.fetch
+  let cookie = 'csrf_token=stale-token'
+  let postCount = 0
+  let csrfRefreshCount = 0
+
+  globalThis.document = { get cookie() { return cookie } }
+  globalThis.fetch = async (_url, options) => {
+    if (!options?.method) {
+      csrfRefreshCount += 1
+      cookie = 'csrf_token=current-token'
+      return new Response(JSON.stringify({ csrfToken: 'current-token' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    postCount += 1
+    assert.equal(options.headers['X-CSRF-Token'], 'stale-token')
+    cookie = 'csrf_token=current-token'
+    return new Response(JSON.stringify({ message: 'Jeton CSRF absent ou invalide.' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+
+  try {
+    await assert.rejects(
+      postWithCsrf('/api/auth/logout', {}),
+      /jeton de sécurité était périmé.*recommencez manuellement/,
+    )
+    assert.equal(postCount, 1)
+    assert.equal(csrfRefreshCount, 1)
+    assert.equal(getCsrfCookie(), 'current-token')
+  } finally {
+    globalThis.document = originalDocument
+    globalThis.fetch = originalFetch
+  }
 })

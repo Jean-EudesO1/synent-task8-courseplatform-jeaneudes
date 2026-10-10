@@ -31,7 +31,9 @@ app.get('/api/health', (_request, response) => {
 app.use('/api/auth', authRoutes)
 
 app.use((error, _request, response, _next) => {
-  console.error('Erreur API :', error.message)
+  if (!error.status || error.status >= 500) {
+    console.error('Erreur API :', error.message)
+  }
   response.status(error.status || 500).json({
     message: error.status ? error.message : 'Une erreur interne est survenue.',
   })
