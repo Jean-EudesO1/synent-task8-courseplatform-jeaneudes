@@ -129,8 +129,13 @@ test('détails publiés exposés sans URL vidéo ni contenu privé', async () =>
   assert.equal(details.response.status, 200)
   assert.equal(details.data.course.title, courses[0].title)
   assert.deepEqual(details.data.course.modules, [{
+    id: String(stored.modules[0]._id),
     title: 'Public module',
-    lessons: [{ title: 'Public lesson', durationMinutes: 12 }],
+    lessons: [{
+      id: String(stored.modules[0].lessons[0]._id),
+      title: 'Public lesson',
+      durationMinutes: 12,
+    }],
   }])
   assert.equal(JSON.stringify(details.data).includes('private.invalid'), false)
   assert.equal(JSON.stringify(details.data).includes('Private lesson content'), false)

@@ -113,3 +113,33 @@ Les nouveaux comptes restent accessibles dans leur espace avant vérification.
 Les futures routes d'inscription à un cours devront utiliser le middleware
 `requireVerifiedEmail`. Les jetons d'e-mail expirent après 24 heures et les
 jetons de réinitialisation après une heure.
+
+## Administration des cours
+
+Pour promouvoir un compte existant, créez d'abord ce compte depuis l'inscription
+et configurez sa boîte e-mail si vous devez vérifier son adresse. Depuis
+PowerShell, exécutez ensuite explicitement :
+
+```powershell
+Set-Location .\backend
+npm run admin:promote -- adresse-du-compte@example.com
+```
+
+Le script ne crée pas de compte et ne définit aucun mot de passe. Il attribue le
+rôle administrateur au compte correspondant dans MongoDB et invalide son ancien
+jeton de session ; déconnectez-vous puis reconnectez-vous pour charger le
+nouveau rôle. La création/modification des cours et leurs mutations sont
+réservées au rôle administrateur, avec vérification JWT, rôle et CSRF côté API.
+Les modules et leçons ont des identifiants stables pour rester référencés lors
+de leur édition ou réorganisation. Les suppressions de cours demandent une
+confirmation dans l'interface.
+
+Une fois promu et reconnecté, ouvrez « Administration » dans la navigation.
+Vous pourrez créer un cours en brouillon, modifier ses champs, ajouter,
+supprimer et réordonner ses modules et leçons, saisir leurs URL vidéo, puis
+enregistrer ou publier le cours. Le prix doit être un entier en paise
+(par exemple `49900` pour ₹499,00), et les URL vidéo doivent commencer par
+`http://` ou `https://`. La publication rend le cours visible dans le catalogue
+public ; les brouillons et contenus vidéo/privés restent masqués des routes
+publiques. Cette étape n'ajoute ni paiement, ni inscription aux cours, ni
+lecteur vidéo, ni liste d'utilisateurs.

@@ -16,7 +16,7 @@ import {
   useSearchParams,
   useNavigate,
 } from 'react-router-dom'
-import { postWithCsrf, readApiResponse } from './api.js'
+import { postWithCsrf, readApiResponse, requestWithCsrf } from './api.js'
 import './App.css'
 
 const AuthContext = createContext(null)
@@ -144,6 +144,20 @@ function ProtectedRoute({ children }) {
   if (authState === 'loading') return <LoadingMessage />
   if (authState === 'error') return <p className="notice error" role="alert">{sessionError}</p>
   if (!user) return <Navigate to="/connexion" replace />
+  return children
+}
+
+function AdminRoute({ children }) {
+  const { user } = useAuth()
+  if (user?.role !== 'admin') {
+    return (
+      <section className="panel">
+        <h1>Accès réservé</h1>
+        <p className="intro">Cette page est accessible uniquement aux administrateurs.</p>
+        <Link className="primary-button button-link" to="/">Retour à mon espace</Link>
+      </section>
+    )
+  }
   return children
 }
 
@@ -781,6 +795,483 @@ function CourseDetailsPage() {
   )
 }
 
+const emptyCourse = () => ({
+  title: '',
+  description: '',
+  category: '',
+  level: 'Débutant',
+  image: '/courses/course-placeholder.svg',
+  price: 0,
+  currency: 'INR',
+  status: 'draft',
+  modules: [],
+})
+
+function prepareCourseForEditor(course) {
+  return {
+    ...course,
+    modules: course.modules.map((module) => ({
+      ...module,
+      _key: module._id || crypto.randomUUID(),
+      lessons: module.lessons.map((lesson) => ({
+        ...lesson,
+        _key: lesson._id || crypto.randomUUID(),
+      })),
+    })),
+  }
+}
+
+function coursePayload(course) {
+  return {
+    title: course.title,
+    description: course.description,
+    category: course.category,
+    level: course.level,
+    image: course.image,
+    price: course.price,
+    currency: course.currency,
+    status: course.status,
+    modules: course.modules.map(({ _key, ...module }) => ({
+      ...(module._id ? { _id: module._id } : {}),
+      title: module.title,
+      lessons: module.lessons.map(({ _key: lessonKey, ...lesson }) => ({
+        ...(lesson._id ? { _id: lesson._id } : {}),
+        title: lesson.title,
+        durationMinutes: lesson.durationMinutes,
+        videoUrl: lesson.videoUrl,
+        content: lesson.content,
+      })),
+    })),
+  }
+}
+
+function moveItem(items, index, direction) {
+  const targetIndex = index + direction
+  if (targetIndex < 0 || targetIndex >= items.length) return items
+  const reordered = [...items]
+  ;[reordered[index], reordered[targetIndex]] = [reordered[targetIndex], reordered[index]]
+  return reordered
+}
+
+function AdminPage() {
+  const [courses, setCourses] = useState([])
+  const [course, setCourse] = useState(emptyCourse)
+  const [selectedId, setSelectedId] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+
+  async function loadCourses() {
+    setLoading(true)
+    setError('')
+    try {
+      const response = await fetch('/api/admin/courses', { credentials: 'include' })
+      const data = await readApiResponse(response, '/api/admin/courses')
+      setCourses(data.courses)
+    } catch (requestError) {
+      setError(requestError.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadCourses()
+  }, [])
+
+  function startNewCourse() {
+    setSelectedId('')
+    setCourse(emptyCourse())
+    setError('')
+    setMessage('')
+  }
+
+  function editCourse(item) {
+    setSelectedId(item._id)
+    setCourse(prepareCourseForEditor(item))
+    setError('')
+    setMessage('')
+  }
+
+  function updateCourse(field, value) {
+    setCourse((current) => ({ ...current, [field]: value }))
+  }
+
+  function updateModule(moduleIndex, field, value) {
+    setCourse((current) => ({
+      ...current,
+      modules: current.modules.map((module, index) => (
+        index === moduleIndex ? { ...module, [field]: value } : module
+      )),
+    }))
+  }
+
+  function updateLesson(moduleIndex, lessonIndex, field, value) {
+    setCourse((current) => ({
+      ...current,
+      modules: current.modules.map((module, index) => index !== moduleIndex
+        ? module
+        : {
+          ...module,
+          lessons: module.lessons.map((lesson, currentLessonIndex) => (
+            currentLessonIndex === lessonIndex
+              ? { ...lesson, [field]: value }
+              : lesson
+          )),
+        }),
+    }))
+  }
+
+  function addModule() {
+    setCourse((current) => ({
+      ...current,
+      modules: [...current.modules, { _key: crypto.randomUUID(), title: '', lessons: [] }],
+    }))
+  }
+
+  function addLesson(moduleIndex) {
+    setCourse((current) => ({
+      ...current,
+      modules: current.modules.map((module, index) => index === moduleIndex
+        ? {
+          ...module,
+          lessons: [...module.lessons, {
+            _key: crypto.randomUUID(),
+            title: '',
+            durationMinutes: 0,
+            videoUrl: '',
+            content: '',
+          }],
+        }
+        : module),
+    }))
+  }
+
+  async function saveCourse(event) {
+    event.preventDefault()
+    setSaving(true)
+    setError('')
+    setMessage('')
+    try {
+      const path = selectedId
+        ? `/api/admin/courses/${selectedId}`
+        : '/api/admin/courses'
+      const method = selectedId ? 'PUT' : 'POST'
+      const result = await requestWithCsrf(path, {
+        method,
+        body: coursePayload(course),
+      })
+      setSelectedId(result.course._id)
+      setCourse(prepareCourseForEditor(result.course))
+      setMessage(course.status === 'published'
+        ? 'Le cours est enregistré et publié.'
+        : 'Le brouillon est enregistré.')
+      await loadCourses()
+    } catch (requestError) {
+      setError(requestError.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function deleteCourse(item) {
+    if (!window.confirm(`Supprimer définitivement « ${item.title} » ?`)) return
+    setError('')
+    setMessage('')
+    try {
+      await requestWithCsrf(`/api/admin/courses/${item._id}`, { method: 'DELETE' })
+      if (selectedId === item._id) startNewCourse()
+      setCourses((current) => current.filter((entry) => entry._id !== item._id))
+      setMessage('Le cours a été supprimé.')
+    } catch (requestError) {
+      setError(requestError.message)
+    }
+  }
+
+  return (
+    <section className="admin-page">
+      <div className="admin-heading">
+        <div>
+          <p className="eyebrow">Gestion de la plateforme</p>
+          <h1>Administration des cours</h1>
+          <p className="intro">Créez des cours, organisez leur programme et gérez leur publication.</p>
+        </div>
+        <button className="primary-button" onClick={startNewCourse} type="button">
+          Nouveau cours
+        </button>
+      </div>
+      {(error || message) && (
+        <p className={`notice ${error ? 'error' : ''}`} role={error ? 'alert' : 'status'}>
+          {error || message}
+        </p>
+      )}
+      <div className="admin-layout">
+        <aside className="admin-course-list">
+          <h2>Cours ({courses.length})</h2>
+          {loading ? (
+            <p className="notice" role="status">Chargement des cours…</p>
+          ) : courses.length === 0 ? (
+            <p className="empty-admin-list">Aucun cours pour le moment.</p>
+          ) : (
+            <ul>
+              {courses.map((item) => (
+                <li className={selectedId === item._id ? 'selected' : ''} key={item._id}>
+                  <button className="admin-course-select" onClick={() => editCourse(item)} type="button">
+                    <strong>{item.title}</strong>
+                    <span className={`status-pill ${item.status}`}>
+                      {item.status === 'published' ? 'Publié' : 'Brouillon'}
+                    </span>
+                  </button>
+                  <button
+                    aria-label={`Supprimer ${item.title}`}
+                    className="delete-course-button"
+                    onClick={() => deleteCourse(item)}
+                    type="button"
+                  >
+                    Supprimer
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </aside>
+
+        <form className="admin-editor" onSubmit={saveCourse}>
+          <h2>{selectedId ? 'Modifier le cours' : 'Créer un cours'}</h2>
+          <div className="admin-fields">
+            <label>
+              Titre
+              <input
+                maxLength="160"
+                onChange={(event) => updateCourse('title', event.target.value)}
+                required
+                value={course.title}
+              />
+            </label>
+            <label>
+              Catégorie
+              <input
+                maxLength="80"
+                onChange={(event) => updateCourse('category', event.target.value)}
+                required
+                value={course.category}
+              />
+            </label>
+            <label className="admin-field-wide">
+              Description
+              <textarea
+                maxLength="5000"
+                onChange={(event) => updateCourse('description', event.target.value)}
+                required
+                rows="4"
+                value={course.description}
+              />
+            </label>
+            <label>
+              Niveau
+              <select onChange={(event) => updateCourse('level', event.target.value)} value={course.level}>
+                <option>Débutant</option>
+                <option>Intermédiaire</option>
+                <option>Avancé</option>
+              </select>
+            </label>
+            <label>
+              Prix (paise, entier)
+              <input
+                min="0"
+                onChange={(event) => updateCourse(
+                  'price',
+                  event.target.value === '' ? '' : Number(event.target.value),
+                )}
+                required
+                step="1"
+                type="number"
+                value={course.price}
+              />
+            </label>
+            <label>
+              Devise
+              <input disabled value="INR" />
+            </label>
+            <label>
+              Publication
+              <select onChange={(event) => updateCourse('status', event.target.value)} value={course.status}>
+                <option value="draft">Brouillon</option>
+                <option value="published">Publié</option>
+              </select>
+            </label>
+            <label className="admin-field-wide">
+              Image (chemin local ou URL HTTP/HTTPS)
+              <input
+                maxLength="2048"
+                onChange={(event) => updateCourse('image', event.target.value)}
+                value={course.image}
+              />
+            </label>
+          </div>
+
+          <div className="admin-section-heading">
+            <div>
+              <h3>Modules et leçons</h3>
+              <p>Les URL vidéo sont privées et ne figurent pas dans le catalogue public.</p>
+            </div>
+            <button className="secondary-button compact-button" onClick={addModule} type="button">
+              Ajouter un module
+            </button>
+          </div>
+          {course.modules.map((module, moduleIndex) => (
+            <section className="admin-module" key={module._key}>
+              <div className="admin-module-heading">
+                <label>
+                  Module {moduleIndex + 1}
+                  <input
+                    maxLength="160"
+                    onChange={(event) => updateModule(moduleIndex, 'title', event.target.value)}
+                    required
+                    value={module.title}
+                  />
+                </label>
+                <div className="editor-actions">
+                  <button
+                    aria-label={`Déplacer le module ${moduleIndex + 1} vers le haut`}
+                    className="icon-button"
+                    disabled={moduleIndex === 0}
+                    onClick={() => setCourse((current) => ({
+                      ...current,
+                      modules: moveItem(current.modules, moduleIndex, -1),
+                    }))}
+                    type="button"
+                  >↑</button>
+                  <button
+                    aria-label={`Déplacer le module ${moduleIndex + 1} vers le bas`}
+                    className="icon-button"
+                    disabled={moduleIndex === course.modules.length - 1}
+                    onClick={() => setCourse((current) => ({
+                      ...current,
+                      modules: moveItem(current.modules, moduleIndex, 1),
+                    }))}
+                    type="button"
+                  >↓</button>
+                  <button
+                    className="text-button danger-text"
+                    onClick={() => setCourse((current) => ({
+                      ...current,
+                      modules: current.modules.filter((_, index) => index !== moduleIndex),
+                    }))}
+                    type="button"
+                  >Supprimer</button>
+                </div>
+              </div>
+              {module.lessons.map((lesson, lessonIndex) => (
+                <div className="admin-lesson" key={lesson._key}>
+                  <div className="admin-lesson-heading">
+                    <strong>Leçon {lessonIndex + 1}</strong>
+                    <div className="editor-actions">
+                      <button
+                        aria-label={`Déplacer la leçon ${lessonIndex + 1} vers le haut`}
+                        className="icon-button"
+                        disabled={lessonIndex === 0}
+                        onClick={() => setCourse((current) => ({
+                          ...current,
+                          modules: current.modules.map((entry, index) => index === moduleIndex
+                            ? { ...entry, lessons: moveItem(entry.lessons, lessonIndex, -1) }
+                            : entry),
+                        }))}
+                        type="button"
+                      >↑</button>
+                      <button
+                        aria-label={`Déplacer la leçon ${lessonIndex + 1} vers le bas`}
+                        className="icon-button"
+                        disabled={lessonIndex === module.lessons.length - 1}
+                        onClick={() => setCourse((current) => ({
+                          ...current,
+                          modules: current.modules.map((entry, index) => index === moduleIndex
+                            ? { ...entry, lessons: moveItem(entry.lessons, lessonIndex, 1) }
+                            : entry),
+                        }))}
+                        type="button"
+                      >↓</button>
+                      <button
+                        className="text-button danger-text"
+                        onClick={() => setCourse((current) => ({
+                          ...current,
+                          modules: current.modules.map((entry, index) => index === moduleIndex
+                            ? { ...entry, lessons: entry.lessons.filter((_, i) => i !== lessonIndex) }
+                            : entry),
+                        }))}
+                        type="button"
+                      >Supprimer</button>
+                    </div>
+                  </div>
+                  <div className="admin-fields">
+                    <label>
+                      Titre de la leçon
+                      <input
+                        maxLength="160"
+                        onChange={(event) => updateLesson(moduleIndex, lessonIndex, 'title', event.target.value)}
+                        required
+                        value={lesson.title}
+                      />
+                    </label>
+                    <label>
+                      Durée (minutes)
+                      <input
+                        min="0"
+                        onChange={(event) => updateLesson(
+                          moduleIndex,
+                          lessonIndex,
+                          'durationMinutes',
+                          event.target.value === '' ? '' : Number(event.target.value),
+                        )}
+                        required
+                        step="1"
+                        type="number"
+                        value={lesson.durationMinutes}
+                      />
+                    </label>
+                    <label className="admin-field-wide">
+                      URL vidéo (HTTP/HTTPS)
+                      <input
+                        maxLength="2048"
+                        onChange={(event) => updateLesson(moduleIndex, lessonIndex, 'videoUrl', event.target.value)}
+                        placeholder="https://exemple.test/video"
+                        type="url"
+                        value={lesson.videoUrl}
+                      />
+                    </label>
+                    <label className="admin-field-wide">
+                      Contenu privé facultatif
+                      <textarea
+                        maxLength="20000"
+                        onChange={(event) => updateLesson(moduleIndex, lessonIndex, 'content', event.target.value)}
+                        rows="2"
+                        value={lesson.content}
+                      />
+                    </label>
+                  </div>
+                </div>
+              ))}
+              <button className="text-button add-lesson-button" onClick={() => addLesson(moduleIndex)} type="button">
+                Ajouter une leçon
+              </button>
+            </section>
+          ))}
+          {course.modules.length === 0 && (
+            <p className="empty-admin-list">Aucun module. Ajoutez un module pour définir le programme.</p>
+          )}
+          <div className="admin-save-row">
+            <span>Le prix est enregistré en INR paise.</span>
+            <button className="primary-button" disabled={saving} type="submit">
+              {saving ? 'Enregistrement…' : 'Enregistrer le cours'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </section>
+  )
+}
+
 function SiteHeader() {
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
@@ -809,6 +1300,7 @@ function SiteHeader() {
           {user ? (
             <>
               <Link to="/">Mon espace</Link>
+              {user.role === 'admin' && <Link to="/administration">Administration</Link>}
               <button className="nav-button" disabled={busy} onClick={handleSignOut} type="button">
                 {busy ? 'Déconnexion…' : 'Déconnexion'}
               </button>
@@ -840,6 +1332,10 @@ function AppRoutes() {
           <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/cours" element={<CourseCatalogPage />} />
           <Route path="/cours/:id" element={<CourseDetailsPage />} />
+          <Route
+            path="/administration"
+            element={<ProtectedRoute><AdminRoute><AdminPage /></AdminRoute></ProtectedRoute>}
+          />
           <Route path="/connexion" element={<GuestRoute><AuthForm mode="login" /></GuestRoute>} />
           <Route path="/inscription" element={<GuestRoute><AuthForm mode="register" /></GuestRoute>} />
           <Route path="/verify-email" element={<VerifyEmailPage />} />

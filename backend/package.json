@@ -7,6 +7,7 @@
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
     "seed:courses": "node scripts/seed-courses.js",
+    "admin:promote": "node scripts/promote-admin.js",
     "test": "node --test"
   },
   "dependencies": {

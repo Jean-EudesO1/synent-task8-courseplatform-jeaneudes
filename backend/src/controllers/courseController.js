@@ -9,7 +9,9 @@ const publicCourseFields = [
   'image',
   'price',
   'currency',
+  'modules._id',
   'modules.title',
+  'modules.lessons._id',
   'modules.lessons.title',
   'modules.lessons.durationMinutes',
 ].join(' ')
@@ -25,8 +27,10 @@ function publicCourse(course) {
     price: course.price,
     currency: course.currency,
     modules: course.modules.map((module) => ({
+      id: String(module._id),
       title: module.title,
       lessons: module.lessons.map((lesson) => ({
+        id: String(lesson._id),
         title: lesson.title,
         durationMinutes: lesson.durationMinutes,
       })),

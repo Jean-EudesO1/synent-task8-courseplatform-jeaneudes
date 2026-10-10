@@ -24,7 +24,6 @@ const lessonSchema = new mongoose.Schema(
       default: '',
     },
   },
-  { _id: false },
 )
 
 const moduleSchema = new mongoose.Schema(
@@ -40,7 +39,6 @@ const moduleSchema = new mongoose.Schema(
       default: [],
     },
   },
-  { _id: false },
 )
 
 const courseSchema = new mongoose.Schema(

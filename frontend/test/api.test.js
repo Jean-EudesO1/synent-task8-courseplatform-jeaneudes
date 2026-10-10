@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { getCsrfCookie, postWithCsrf, readApiResponse } from '../src/api.js'
+import {
+  getCsrfCookie,
+  postWithCsrf,
+  readApiResponse,
+  requestWithCsrf,
+} from '../src/api.js'
 
 test('lit le jeton CSRF courant du cookie sans conserver de cache local', () => {
   assert.equal(
@@ -80,6 +85,38 @@ test('synchronise un CSRF périmé sans rejouer la mutation refusée', async () 
       return new Response(JSON.stringify({ csrfToken: 'current-token' }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
+      })
+
+      test('utilise le jeton CSRF pour PUT et DELETE sans transformer la méthode', async () => {
+        const originalDocument = globalThis.document
+        const originalFetch = globalThis.fetch
+        globalThis.document = { cookie: 'csrf_token=active-token' }
+        const calls = []
+        globalThis.fetch = async (url, options) => {
+          calls.push({ url, options })
+          return options.method === 'DELETE'
+            ? new Response(null, { status: 204 })
+            : new Response(JSON.stringify({ course: { title: 'Cours modifié' } }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            })
+        }
+
+        try {
+          const updated = await requestWithCsrf('/api/admin/courses/course-id', {
+            method: 'PUT',
+            body: { title: 'Cours modifié' },
+          })
+          assert.equal(updated.course.title, 'Cours modifié')
+          assert.equal(await requestWithCsrf('/api/admin/courses/course-id', {
+            method: 'DELETE',
+          }), null)
+          assert.deepEqual(calls.map(({ options }) => options.method), ['PUT', 'DELETE'])
+          assert.ok(calls.every(({ options }) => options.headers['X-CSRF-Token'] === 'active-token'))
+        } finally {
+          globalThis.document = originalDocument
+          globalThis.fetch = originalFetch
+        }
       })
     }
 

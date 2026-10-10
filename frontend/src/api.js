@@ -54,7 +54,7 @@ async function bootstrapCsrfCookie() {
   await readApiResponse(response, '/api/auth/csrf')
 }
 
-export async function postWithCsrf(path, body) {
+export async function requestWithCsrf(path, { method = 'POST', body = {} } = {}) {
   let csrfToken = getCsrfCookie()
   if (!csrfToken) {
     await bootstrapCsrfCookie()
@@ -65,7 +65,7 @@ export async function postWithCsrf(path, body) {
   }
 
   const response = await fetch(path, {
-    method: 'POST',
+    method,
     credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
@@ -94,4 +94,8 @@ export async function postWithCsrf(path, body) {
 
     throw error
   }
+}
+
+export function postWithCsrf(path, body) {
+  return requestWithCsrf(path, { method: 'POST', body })
 }
