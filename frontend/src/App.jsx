@@ -12,6 +12,7 @@ import {
   Navigate,
   Route,
   Routes,
+  useParams,
   useSearchParams,
   useNavigate,
 } from 'react-router-dom'
@@ -328,6 +329,9 @@ function Dashboard() {
         <span>Rôle</span>
         <strong>{user.role === 'admin' ? 'Administrateur' : 'Étudiant'}</strong>
       </div>
+      <Link className="primary-button button-link dashboard-catalog-link" to="/cours">
+        Découvrir le catalogue
+      </Link>
       {health.state === 'loading' && (
         <p className="health-line" role="status">Vérification de l’API…</p>
       )}
@@ -529,6 +533,299 @@ function ResetPasswordPage() {
   )
 }
 
+function formatPrice(price, currency) {
+  return new Intl.NumberFormat('fr-FR', {
+    style: 'currency',
+    currency,
+  }).format(price / 100)
+}
+
+function CourseCatalogPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [courses, setCourses] = useState([])
+  const [categories, setCategories] = useState([])
+  const [pagination, setPagination] = useState(null)
+  const [state, setState] = useState('loading')
+  const [error, setError] = useState('')
+  const [filters, setFilters] = useState({
+    q: searchParams.get('q') || '',
+    category: searchParams.get('category') || '',
+    level: searchParams.get('level') || '',
+  })
+  const queryString = searchParams.toString()
+
+  useEffect(() => {
+    setFilters({
+      q: searchParams.get('q') || '',
+      category: searchParams.get('category') || '',
+      level: searchParams.get('level') || '',
+    })
+  }, [queryString])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    const endpoint = `/api/courses${queryString ? `?${queryString}` : ''}`
+    setState('loading')
+    setError('')
+
+    fetch(endpoint, { signal: controller.signal })
+      .then((response) => readApiResponse(response, endpoint))
+      .then((data) => {
+        setCourses(data.courses)
+        setCategories(data.categories)
+        setPagination(data.pagination)
+        setState('success')
+      })
+      .catch((requestError) => {
+        if (requestError.name === 'AbortError') return
+        setError(requestError.message)
+        setState('error')
+      })
+
+    return () => controller.abort()
+  }, [queryString])
+
+  function applyFilters(event) {
+    event.preventDefault()
+    const nextParams = new URLSearchParams()
+    if (filters.q.trim()) nextParams.set('q', filters.q.trim())
+    if (filters.category) nextParams.set('category', filters.category)
+    if (filters.level) nextParams.set('level', filters.level)
+    setSearchParams(nextParams)
+  }
+
+  function changePage(page) {
+    const nextParams = new URLSearchParams(searchParams)
+    if (page > 1) nextParams.set('page', String(page))
+    else nextParams.delete('page')
+    setSearchParams(nextParams)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  return (
+    <section className="catalog-page">
+      <div className="catalog-heading">
+        <p className="eyebrow">Apprendre à votre rythme</p>
+        <h1>Catalogue des cours</h1>
+        <p className="intro">Trouvez le cours qui vous aidera à atteindre votre prochain objectif.</p>
+      </div>
+      <form className="course-filters" onSubmit={applyFilters}>
+        <label>
+          Rechercher
+          <input
+            aria-label="Rechercher un cours"
+            onChange={(event) => setFilters({ ...filters, q: event.target.value })}
+            placeholder="Titre ou description"
+            type="search"
+            value={filters.q}
+          />
+        </label>
+        <label>
+          Catégorie
+          <select
+            onChange={(event) => setFilters({ ...filters, category: event.target.value })}
+            value={filters.category}
+          >
+            <option value="">Toutes les catégories</option>
+            {categories.map((category) => <option key={category} value={category}>{category}</option>)}
+          </select>
+        </label>
+        <label>
+          Niveau
+          <select
+            onChange={(event) => setFilters({ ...filters, level: event.target.value })}
+            value={filters.level}
+          >
+            <option value="">Tous les niveaux</option>
+            <option value="Débutant">Débutant</option>
+            <option value="Intermédiaire">Intermédiaire</option>
+            <option value="Avancé">Avancé</option>
+          </select>
+        </label>
+        <button className="primary-button" type="submit">Rechercher</button>
+      </form>
+
+      {state === 'loading' && <p className="notice" role="status">Chargement des cours…</p>}
+      {state === 'error' && <p className="notice error" role="alert">Impossible de charger le catalogue : {error}</p>}
+      {state === 'success' && courses.length === 0 && (
+        <p className="notice empty-courses" role="status">Aucun cours ne correspond à votre recherche.</p>
+      )}
+      {state === 'success' && courses.length > 0 && (
+        <>
+          <div className="course-grid">
+            {courses.map((course) => (
+              <article className="course-card" key={course.id}>
+                <Link className="course-card-link" to={`/cours/${course.id}`}>
+                  <img
+                    alt=""
+                    className="course-image"
+                    onError={(event) => { event.currentTarget.src = '/courses/course-placeholder.svg' }}
+                    src={course.image || '/courses/course-placeholder.svg'}
+                  />
+                  <div className="course-card-content">
+                    <span className="course-category">{course.category}</span>
+                    <h2>{course.title}</h2>
+                    <p>{course.description}</p>
+                    <span className="course-level">{course.level}</span>
+                    <strong className="course-price">{formatPrice(course.price, course.currency)}</strong>
+                  </div>
+                </Link>
+              </article>
+            ))}
+          </div>
+          {pagination.pages > 1 && (
+            <nav aria-label="Pagination du catalogue" className="pagination">
+              <button
+                className="secondary-button"
+                disabled={pagination.page <= 1}
+                onClick={() => changePage(pagination.page - 1)}
+                type="button"
+              >
+                Précédent
+              </button>
+              <span>Page {pagination.page} sur {pagination.pages}</span>
+              <button
+                className="secondary-button"
+                disabled={pagination.page >= pagination.pages}
+                onClick={() => changePage(pagination.page + 1)}
+                type="button"
+              >
+                Suivant
+              </button>
+            </nav>
+          )}
+        </>
+      )}
+    </section>
+  )
+}
+
+function CourseDetailsPage() {
+  const { id } = useParams()
+  const [course, setCourse] = useState(null)
+  const [state, setState] = useState('loading')
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    const controller = new AbortController()
+    const endpoint = `/api/courses/${encodeURIComponent(id)}`
+    setState('loading')
+    setError('')
+
+    fetch(endpoint, { signal: controller.signal })
+      .then((response) => readApiResponse(response, endpoint))
+      .then((data) => {
+        setCourse(data.course)
+        setState('success')
+      })
+      .catch((requestError) => {
+        if (requestError.name === 'AbortError') return
+        setError(requestError.message)
+        setState('error')
+      })
+
+    return () => controller.abort()
+  }, [id])
+
+  if (state === 'loading') return <p className="notice" role="status">Chargement du cours…</p>
+  if (state === 'error') {
+    return (
+      <section className="panel course-error">
+        <h1>Cours indisponible</h1>
+        <p className="notice error" role="alert">{error}</p>
+        <Link className="text-button" to="/cours">Retour au catalogue</Link>
+      </section>
+    )
+  }
+
+  return (
+    <article className="course-details">
+      <Link className="back-link" to="/cours">← Retour au catalogue</Link>
+      <img
+        alt=""
+        className="details-image"
+        onError={(event) => { event.currentTarget.src = '/courses/course-placeholder.svg' }}
+        src={course.image || '/courses/course-placeholder.svg'}
+      />
+      <div className="details-body">
+        <p className="eyebrow">{course.category} · {course.level}</p>
+        <h1>{course.title}</h1>
+        <p className="details-description">{course.description}</p>
+        <p className="details-price">{formatPrice(course.price, course.currency)}</p>
+        <section className="curriculum">
+          <h2>Programme du cours</h2>
+          {course.modules.length === 0 ? (
+            <p className="notice">Le programme sera bientôt disponible.</p>
+          ) : (
+            <ol className="module-list">
+              {course.modules.map((module, moduleIndex) => (
+                <li key={`${module.title}-${moduleIndex}`}>
+                  <h3>{module.title}</h3>
+                  {module.lessons.length > 0 ? (
+                    <ul>
+                      {module.lessons.map((lesson, lessonIndex) => (
+                        <li key={`${lesson.title}-${lessonIndex}`}>
+                          <span>{lesson.title}</span>
+                          {lesson.durationMinutes > 0 && <span>{lesson.durationMinutes} min</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : <p className="lesson-empty">Aucune leçon listée.</p>}
+                </li>
+              ))}
+            </ol>
+          )}
+        </section>
+      </div>
+    </article>
+  )
+}
+
+function SiteHeader() {
+  const { user, signOut } = useAuth()
+  const navigate = useNavigate()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  async function handleSignOut() {
+    setBusy(true)
+    setError('')
+    try {
+      await signOut()
+      navigate('/cours')
+    } catch (requestError) {
+      setError(requestError.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <>
+      <header className="site-header">
+        <Link className="brand" to="/cours">Plateforme de cours</Link>
+        <nav aria-label="Navigation principale">
+          <Link to="/cours">Catalogue</Link>
+          {user ? (
+            <>
+              <Link to="/">Mon espace</Link>
+              <button className="nav-button" disabled={busy} onClick={handleSignOut} type="button">
+                {busy ? 'Déconnexion…' : 'Déconnexion'}
+              </button>
+            </>
+          ) : (
+            <>
+              <Link to="/connexion">Connexion</Link>
+              <Link className="nav-register" to="/inscription">Inscription</Link>
+            </>
+          )}
+        </nav>
+      </header>
+      {error && <p className="notice error header-error" role="alert">{error}</p>}
+    </>
+  )
+}
+
 function AppRoutes() {
   const { authState, sessionError } = useAuth()
 
@@ -537,16 +834,12 @@ function AppRoutes() {
 
   return (
     <>
-      <header className="site-header">
-        <Link className="brand" to="/">Plateforme de cours</Link>
-        <nav aria-label="Navigation principale">
-          <Link to="/connexion">Connexion</Link>
-          <Link className="nav-register" to="/inscription">Inscription</Link>
-        </nav>
-      </header>
+      <SiteHeader />
       <main className="page-content">
         <Routes>
           <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/cours" element={<CourseCatalogPage />} />
+          <Route path="/cours/:id" element={<CourseDetailsPage />} />
           <Route path="/connexion" element={<GuestRoute><AuthForm mode="login" /></GuestRoute>} />
           <Route path="/inscription" element={<GuestRoute><AuthForm mode="register" /></GuestRoute>} />
           <Route path="/verify-email" element={<VerifyEmailPage />} />

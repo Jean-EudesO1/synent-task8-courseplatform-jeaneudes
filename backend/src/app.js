@@ -4,6 +4,7 @@ import cookieParser from 'cookie-parser'
 import express from 'express'
 import mongoose from 'mongoose'
 import authRoutes from './routes/authRoutes.js'
+import courseRoutes from './routes/courseRoutes.js'
 import { frontendUrl } from './config.js'
 
 const app = express()
@@ -29,6 +30,7 @@ app.get('/api/health', (_request, response) => {
 })
 
 app.use('/api/auth', authRoutes)
+app.use('/api/courses', courseRoutes)
 
 app.use((error, _request, response, _next) => {
   if (!error.status || error.status >= 500) {

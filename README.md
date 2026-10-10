@@ -65,6 +65,35 @@ réel. Pour vérifier l'envoi Gmail, démarrez l'application après avoir config
 ces paramètres et effectuez une inscription avec une adresse à laquelle vous
 pouvez accéder.
 
+## Catalogue et cours de démonstration
+
+Le catalogue public est accessible à `/cours`. Il permet de rechercher les
+cours publiés par titre ou description, de filtrer par catégorie et niveau, et
+de consulter le programme depuis une page de détails. Les leçons publiques
+n'affichent ni les URL vidéo ni leur contenu réservé.
+
+Après avoir renseigné `MONGODB_URI` dans votre configuration locale, ajoutez
+explicitement les cours de démonstration depuis PowerShell :
+
+```powershell
+Set-Location .\backend
+npm run seed:courses
+```
+
+Ce script ne s'exécute pas au démarrage de l'application. Il ajoute quatre
+cours INR si leurs slugs de démonstration n'existent pas ; le relancer ne crée
+pas de doublons et ne modifie ni ne supprime les cours déjà présents.
+L'image utilisée par ces cours est le placeholder local
+[`frontend/public/courses/course-placeholder.svg`](frontend/public/courses/course-placeholder.svg).
+Remplacez ce fichier par votre visuel en conservant ce chemin, ou modifiez le
+champ `image` d'un cours pour référencer un autre fichier placé dans
+`frontend/public/`.
+Pour tester l'interface, démarrez le backend et le frontend comme ci-dessous,
+ouvrez `http://localhost:5173/cours`, puis essayez la recherche, les filtres de
+catégorie et de niveau, la pagination et l'ouverture d'une fiche de cours. Les
+cours non publiés ne sont pas visibles dans ce catalogue public. Cette étape
+ne propose pas encore d'inscription aux cours ni de paiement.
+
 Dans un second terminal PowerShell :
 
 ```powershell

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" role="img" aria-labelledby="title description">
+  <title id="title">Illustration de cours</title>
+  <desc id="description">Image de remplacement pour un cours en ligne</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#d8efe5"/>
+      <stop offset="1" stop-color="#a9d6c3"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="675" fill="url(#background)"/>
+  <circle cx="930" cy="170" r="190" fill="#fff" opacity=".25"/>
+  <circle cx="220" cy="600" r="240" fill="#176b50" opacity=".12"/>
+  <rect x="390" y="170" width="420" height="300" rx="28" fill="#fff" opacity=".85"/>
+  <path d="M470 250h260M470 310h210M470 370h170" fill="none" stroke="#176b50" stroke-linecap="round" stroke-width="22"/>
+</svg>
