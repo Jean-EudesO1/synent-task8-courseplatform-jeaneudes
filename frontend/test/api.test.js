@@ -35,7 +35,7 @@ test('signale une réponse vide avec le point de terminaison et le statut', asyn
 
   await assert.rejects(
     readApiResponse(response, '/api/auth/csrf'),
-    /Réponse vide de \/api\/auth\/csrf \(HTTP 502 Bad Gateway\).*backend et le proxy Vite/,
+    /Réponse vide de \/api\/auth\/csrf \(HTTP 502 Bad Gateway\).*Réessayez dans un instant/,
   )
 })
 

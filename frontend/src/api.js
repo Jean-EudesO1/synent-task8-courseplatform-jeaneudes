@@ -27,7 +27,7 @@ export async function readApiResponse(response, endpoint = 'requête API') {
       data?.message
       || (body.trim()
         ? `Échec de ${responseEndpoint} (${status}).`
-        : `Réponse vide de ${responseEndpoint} (${status}). Vérifiez le backend et le proxy Vite.`),
+        : `Réponse vide de ${responseEndpoint} (${status}). Réessayez dans un instant.`),
     )
   }
 

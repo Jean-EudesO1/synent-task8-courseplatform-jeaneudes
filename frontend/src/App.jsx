@@ -279,14 +279,6 @@ function Dashboard() {
   const [error, setError] = useState('')
   const [verificationMessage, setVerificationMessage] = useState('')
   const [verificationError, setVerificationError] = useState('')
-  const [health, setHealth] = useState({ state: 'loading', data: null })
-
-  useEffect(() => {
-    fetch('/api/health')
-      .then((response) => readApiResponse(response, '/api/health'))
-      .then((data) => setHealth({ state: 'success', data }))
-      .catch((error) => setHealth({ state: 'error', data: error.message }))
-  }, [])
 
   async function handleSignOut() {
     setLoading(true)
@@ -352,17 +344,6 @@ function Dashboard() {
       <Link className="secondary-button button-link dashboard-catalog-link" to="/mes-cours">
         Mes cours
       </Link>
-      {health.state === 'loading' && (
-        <p className="health-line" role="status">Vérification de l’API…</p>
-      )}
-      {health.state === 'success' && (
-        <p className="health-line" role="status">
-          API : {health.data.status} · Base MongoDB : {health.data.database}
-        </p>
-      )}
-      {health.state === 'error' && (
-        <p className="notice error" role="alert">Vérification de l’API impossible : {health.data}</p>
-      )}
       {error && <p className="notice error" role="alert">{error}</p>}
       <button
         className="secondary-button"
@@ -2031,7 +2012,7 @@ function AdminDirectoryPage({ kind }) {
         )}
         <button className="primary-button" type="submit">Rechercher</button>
       </form>
-      {isUsers && <AdminTestEmailForm />}
+      {isUsers && import.meta.env.DEV && <AdminTestEmailForm />}
       {error && (
         <div className="admin-load-error">
           <p className="notice error" role="alert">{error}</p>

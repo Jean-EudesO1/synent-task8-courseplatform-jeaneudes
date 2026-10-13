@@ -112,9 +112,9 @@ npm run dev
 ```
 
 Ouvrez l'adresse locale affichée par Vite (par défaut
-`http://localhost:5173`). La page interroge `/api/health` via le proxy Vite.
-MongoDB est confirmé connecté uniquement quand le statut affiché est
-`connected`.
+`http://localhost:5173`). Le backend expose aussi `/api/health` pour les
+vérifications techniques ; il n'est pas nécessaire d'afficher son statut dans
+l'interface utilisateur.
 
 L'API est disponible sur `http://localhost:5000/api/health`.
 
@@ -306,11 +306,19 @@ paiement répétées de créer plusieurs notifications en base, mais ne peut pas
 annuler ce cas ambigu côté fournisseur SMTP.
 
 Pour tester manuellement l’envoi, utilisez la section « Tester une notification
-e-mail » des pages d’administration en lançant le backend avec
-`NODE_ENV=development`. Le point d’accès exige aussi un administrateur et une
-protection CSRF ; il refuse toute exécution dans un autre environnement. Le
-message porte `[TEST]` dans son objet et précise qu’aucun paiement ni aucune
-inscription n’a été créé. Cette fonction n’est pas une notification d’achat.
+e-mail » des pages d’administration. Dans le terminal du backend, définissez
+`NODE_ENV=development` avant de lancer le serveur :
+
+```powershell
+Set-Location .\backend
+$env:NODE_ENV = 'development'
+npm run dev
+```
+
+Le point d’accès exige aussi un administrateur et une protection CSRF ; il
+refuse toute exécution dans un autre environnement. Le message porte `[TEST]`
+dans son objet et précise qu’aucun paiement ni aucune inscription n’a été créé.
+Cette fonction n’est pas une notification d’achat.
 Les tests automatisés utilisent un transport factice ; ils vérifient notamment
 qu’un échec SMTP laisse l’inscription active et que la notification peut être
 relancée. Ils ne valident pas la livraison réelle par Gmail.
@@ -320,3 +328,61 @@ tests automatisés avec un service Razorpay factice ont été réalisés, faute
 d’accès aux clés de test. L’envoi SMTP réel et l’achat Checkout réel doivent
 être vérifiés séparément lorsque les configurations correspondantes seront
 disponibles.
+
+## Vérification, tests et scripts
+
+Les tests automatisés disponibles se lancent depuis les dossiers concernés :
+
+```powershell
+Set-Location .\backend
+npm test
+```
+
+```powershell
+Set-Location .\frontend
+npm test
+npm run build
+```
+
+La suite backend couvre les routes d'authentification et CSRF, les jetons
+d'e-mail, les listes et mutations d'administration, le catalogue, les
+notifications, l'apprentissage et la progression, ainsi que le paiement par
+service Razorpay factice. La suite frontend vérifie les réponses API et la
+synchronisation CSRF. Le build contrôle la compilation de production du
+frontend. Ces tests automatisés ne remplacent pas les parcours manuels dans
+un navigateur.
+
+Vérifications manuelles effectuées pour cette révision : consultation du
+catalogue et d'une fiche, recherche, navigation vers le détail sans rechargement
+du document, absence de débordement horizontal à 360 px et 1440 px, et
+navigation clavier jusqu'au bouton de connexion. Les sections d'administration
+ont également été parcourues plusieurs fois sans rechargement, avec réponses
+simulées, pour vérifier les états actif, chargement/erreur et l'absence de
+débordement à 360 px et 1440 px. Ces vérifications utilisent uniquement des
+lectures ; aucun compte, e-mail, paiement ou changement de données n'a été
+créé. Les pages protégées n'ont pas été parcourues avec une session
+administrateur/étudiant réelle pendant cette vérification.
+
+Parcours manuels à vérifier après démarrage des deux serveurs : inscription,
+connexion, déconnexion et récupération de session ; vérification d'adresse et
+réinitialisation avec réception réelle des e-mails ; recherche et navigation
+du catalogue ; accès admin aux cours, utilisateurs et inscriptions ; lecture
+d'un cours attribué en développement et persistance de la progression ; enfin
+affichage mobile/ordinateur, formulaires, navigation clavier, états de
+chargement et erreurs. L'inscription locale de développement décrite plus
+haut permet de tester l'apprentissage, mais ne représente pas un paiement. Le
+formulaire d'envoi d'e-mail de test n'est affiché que dans le frontend de
+développement et sa route backend refuse tout environnement autre que
+`NODE_ENV=development`.
+
+À la date de cette documentation, les e-mails Gmail SMTP réels et la navigation
+complète sur des données de production ne sont pas déclarés validés. Le vrai
+parcours Razorpay Checkout en mode Test reste non validé faute de clés d'accès ;
+seuls les tests automatisés avec service factice ont été exécutés.
+
+Scripts backend disponibles : `npm run dev` (serveur de développement),
+`npm start` (serveur), `npm run seed:courses` (cours de démonstration),
+`npm run admin:promote` (promotion manuelle), `npm run enrollment:test`
+(inscription locale non payée), `npm run email:retry` (relance des
+notifications échouées) et `npm test`. Côté frontend : `npm run dev`,
+`npm run build`, `npm run preview` et `npm test`.
