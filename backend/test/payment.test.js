@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { createHmac, randomUUID } from 'node:crypto'
 import { after, before, test } from 'node:test'
 import mongoose from 'mongoose'
+import { configureDnsServers } from '../src/utils/dnsConfig.js'
 
 process.env.NODE_ENV = 'test'
 process.env.JWT_SECRET ||= randomUUID() + randomUUID()
@@ -13,20 +14,26 @@ const [
   { default: app },
   { frontendUrl },
   { default: Course },
+  { default: EmailNotification },
   { default: Enrollment },
   { default: Payment },
   { default: User },
   { createAuthToken },
   razorpayService,
+  emailService,
+  emailNotificationService,
 ] = await Promise.all([
   import('../src/app.js'),
   import('../src/config.js'),
   import('../src/models/Course.js'),
+  import('../src/models/EmailNotification.js'),
   import('../src/models/Enrollment.js'),
   import('../src/models/Payment.js'),
   import('../src/models/User.js'),
   import('../src/utils/auth.js'),
   import('../src/services/razorpayService.js'),
+  import('../src/services/emailService.js'),
+  import('../src/services/emailNotificationService.js'),
 ])
 
 const suffix = randomUUID()
@@ -124,6 +131,7 @@ before(async () => {
   if (!process.env.MONGODB_URI) {
     throw new Error('MONGODB_URI doit être configurée localement pour les tests d’intégration.')
   }
+  configureDnsServers()
   await mongoose.connect(process.env.MONGODB_URI)
   users.push(
     await User.create({
@@ -183,6 +191,7 @@ before(async () => {
 after(async () => {
   razorpayService.setRazorpayTestClient(undefined)
   await Enrollment.deleteMany({ userId: { $in: users.map((user) => user._id) } })
+  await EmailNotification.deleteMany({ userId: { $in: users.map((user) => user._id) } })
   await Payment.deleteMany({ userId: { $in: users.map((user) => user._id) } })
   if (course) await Course.deleteOne({ _id: course._id })
   if (draftCourse) await Course.deleteOne({ _id: draftCourse._id })
@@ -298,6 +307,11 @@ test('signature, utilisateur, montant, devise, commande et capture sont vérifi�
 })
 
 test('paiement capturé crée une inscription unique, idempotente et privée', async () => {
+  emailService.setTestEmailSender(async () => {
+    const error = new Error('fake SMTP failure')
+    error.code = 'ECONNECTION'
+    throw error
+  })
   gatewayState.payment.status = 'captured'
   gatewayState.payment.captured = true
   const [first, concurrent, second] = await Promise.all([
@@ -311,7 +325,38 @@ test('paiement capturé crée une inscription unique, idempotente et privée', a
   }
   assert.equal(await Enrollment.countDocuments({ userId: users[0]._id, courseId: course._id }), 1)
   assert.equal(await Payment.countDocuments({ userId: users[0]._id, courseId: course._id, status: 'captured' }), 1)
+  assert.equal(await EmailNotification.countDocuments({
+    userId: users[0]._id,
+    kind: 'course-enrollment',
+  }), 1)
+  const failedNotification = await EmailNotification.findOne({
+    userId: users[0]._id,
+    kind: 'course-enrollment',
+  }).lean()
+  assert.equal(failedNotification.status, 'failed')
+  assert.equal(failedNotification.attempts, 1)
+  assert.equal(failedNotification.lastErrorCode, 'ECONNECTION')
   assert.equal((await Course.findById(course._id).select('+enrollmentCount')).enrollmentCount, 1)
+
+  const deliveredMessages = []
+  emailService.setTestEmailSender(async (message) => {
+    deliveredMessages.push(message)
+    return { messageId: 'test-delivery' }
+  })
+  const retryResult = await emailNotificationService.retryFailedEmailNotifications({
+    notificationIds: [failedNotification._id],
+  })
+  assert.deepEqual(retryResult, { attempted: 1, sent: 1 })
+  assert.equal(deliveredMessages.length, 1)
+  assert.match(deliveredMessages[0].subject, /inscription au cours est confirmée/i)
+  assert.equal((await EmailNotification.findById(failedNotification._id)).status, 'sent')
+
+  await confirmPayment()
+  assert.equal(await EmailNotification.countDocuments({
+    userId: users[0]._id,
+    kind: 'course-enrollment',
+  }), 1)
+  assert.equal(deliveredMessages.length, 1)
 
   const duplicateOrder = await createOrder()
   assert.equal(duplicateOrder.response.status, 409)

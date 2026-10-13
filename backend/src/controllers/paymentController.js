@@ -1,8 +1,10 @@
 import mongoose from 'mongoose'
 import { randomUUID } from 'node:crypto'
 import Course from '../models/Course.js'
+import EmailNotification from '../models/EmailNotification.js'
 import Enrollment from '../models/Enrollment.js'
 import Payment from '../models/Payment.js'
+import { deliverEmailNotification } from '../services/emailNotificationService.js'
 import {
   createRazorpayOrder,
   fetchRazorpayPayment,
@@ -151,7 +153,9 @@ export async function confirmCoursePayment(request, response, next) {
     }
 
     let enrollment
+    let notificationId
     await session.withTransaction(async () => {
+      notificationId = undefined
       const confirmedPayment = await Payment.findOneAndUpdate(
         { razorpayOrderId: orderId, userId: request.user._id },
         {
@@ -187,6 +191,16 @@ export async function confirmCoursePayment(request, response, next) {
           source: 'payment',
           enrolledAt: new Date(),
         }], { session })
+        const [notification] = await EmailNotification.create([{
+          kind: 'course-enrollment',
+          recipient: request.user.email,
+          userId: payment.userId,
+          courseId: payment.courseId,
+          enrollmentId: enrollment._id,
+          paymentId: confirmedPayment._id,
+          dedupeKey: `course-enrollment:${confirmedPayment._id}`,
+        }], { session })
+        notificationId = notification._id
         await Course.updateOne(
           { _id: payment.courseId },
           { $inc: { enrollmentCount: 1 } },
@@ -194,6 +208,9 @@ export async function confirmCoursePayment(request, response, next) {
         )
       }
     })
+    if (notificationId) {
+      await deliverEmailNotification(notificationId)
+    }
     return response.json({
       status: 'enrolled',
       message: 'Paiement confirmé : votre inscription au cours est active.',

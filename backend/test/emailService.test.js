@@ -3,7 +3,13 @@ import { test } from 'node:test'
 
 process.env.NODE_ENV = 'test'
 
-const { createGmailTransportOptions, sendVerificationEmail, testEmailOutbox } =
+const {
+  createGmailTransportOptions,
+  sendCourseEnrollmentEmail,
+  sendTestNotificationEmail,
+  sendVerificationEmail,
+  testEmailOutbox,
+} =
   await import('../src/services/emailService.js')
 
 test('configure Nodemailer pour Gmail avec STARTTLS obligatoire', () => {
@@ -78,4 +84,19 @@ test('conserve la boîte d’envoi factice en tests sans SMTP', async () => {
   assert.equal(testEmailOutbox.length, 1)
   assert.equal(testEmailOutbox[0].to, 'student@example.test')
   assert.match(testEmailOutbox[0].text, /verify-email/)
+})
+
+test('différencie une confirmation de cours d’un e-mail de test', async () => {
+  testEmailOutbox.length = 0
+  await sendCourseEnrollmentEmail(
+    { name: 'Test Student', email: 'student@example.test' },
+    { title: 'Cours de démonstration' },
+  )
+  await sendTestNotificationEmail('student@example.test')
+
+  assert.equal(testEmailOutbox.length, 2)
+  assert.match(testEmailOutbox[0].subject, /inscription au cours est confirmée/i)
+  assert.match(testEmailOutbox[0].text, /Cours de démonstration/)
+  assert.match(testEmailOutbox[1].subject, /^\[TEST\]/)
+  assert.match(testEmailOutbox[1].text, /Aucune inscription ni aucun paiement/)
 })

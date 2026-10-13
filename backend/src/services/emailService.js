@@ -6,12 +6,21 @@ export const testEmailOutbox = isTestTransport ? [] : undefined
 const testTransport = isTestTransport
   ? {
       async sendMail(message) {
+        if (testEmailSender) return testEmailSender(message)
         testEmailOutbox.push(message)
         return { messageId: `test-${testEmailOutbox.length}` }
       },
     }
   : null
+let testEmailSender
 let smtpTransport
+
+export function setTestEmailSender(sender) {
+  if (!isTestTransport) {
+    throw new Error('Le transport d’e-mail de test est uniquement disponible dans NODE_ENV=test.')
+  }
+  testEmailSender = sender
+}
 
 export function createGmailTransportOptions(env = process.env) {
   const { SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASSWORD, EMAIL_FROM } = env
@@ -75,9 +84,14 @@ async function sendEmail({ to, subject, text, html }) {
     })
   } catch (error) {
     if (error.status) throw error
-    console.error('Échec de livraison SMTP :', error.code || error.name)
+    const rawCode = typeof error.code === 'string' ? error.code : error.name
+    const errorCode = typeof rawCode === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(rawCode)
+      ? rawCode
+      : 'DELIVERY_FAILED'
+    console.error('Échec de livraison SMTP :', errorCode)
     const deliveryError = new Error('Le message n’a pas pu être envoyé. Vérifiez la configuration SMTP et réessayez.')
     deliveryError.status = 503
+    deliveryError.code = errorCode
     throw deliveryError
   }
 }
@@ -105,5 +119,27 @@ export async function sendPasswordResetEmail(user, token) {
     subject: 'Réinitialisation de votre mot de passe',
     text: `Bonjour ${user.name}, réinitialisez votre mot de passe en ouvrant ce lien : ${link.href}`,
     html: `<p>Bonjour ${name},</p><p><a href="${link.href}">Réinitialiser mon mot de passe</a></p><p>Ce lien expire dans une heure. Ignorez ce message si vous n’avez pas demandé de réinitialisation.</p>`,
+  })
+}
+
+export async function sendCourseEnrollmentEmail(user, course) {
+  const name = escapeHtml(user.name)
+  const title = escapeHtml(course.title)
+  const link = new URL('/mes-cours', process.env.FRONTEND_URL || 'http://localhost:5173')
+
+  await sendEmail({
+    to: user.email,
+    subject: 'Votre inscription au cours est confirmée',
+    text: `Bonjour ${user.name}, votre inscription au cours « ${course.title} » est confirmée. Retrouvez-le dans Mes cours : ${link.href}`,
+    html: `<p>Bonjour ${name},</p><p>Votre inscription au cours « <strong>${title}</strong> » est confirmée.</p><p><a href="${link.href}">Accéder à Mes cours</a></p>`,
+  })
+}
+
+export async function sendTestNotificationEmail(recipient) {
+  await sendEmail({
+    to: recipient,
+    subject: '[TEST] Notification de la plateforme de cours',
+    text: 'Ceci est un e-mail de test. Aucune inscription ni aucun paiement n’a été créé ou confirmé.',
+    html: '<p><strong>Notification de test</strong></p><p>Aucune inscription ni aucun paiement n’a été créé ou confirmé.</p>',
   })
 }

@@ -3,6 +3,7 @@ import mongoose from 'mongoose'
 import Course from '../src/models/Course.js'
 import Enrollment from '../src/models/Enrollment.js'
 import User from '../src/models/User.js'
+import { connectMongoDB } from '../src/utils/connectMongoDB.js'
 
 const [action, emailArgument, courseId] = process.argv.slice(2)
 const email = emailArgument?.trim().toLowerCase()
@@ -28,7 +29,7 @@ if (process.env.NODE_ENV !== 'development') {
 } else {
   let session
   try {
-    await mongoose.connect(process.env.MONGODB_URI)
+    await connectMongoDB(process.env.MONGODB_URI)
     session = await mongoose.startSession()
     await session.withTransaction(async () => {
       const user = await User.findOne({ email, emailVerified: true }).session(session)

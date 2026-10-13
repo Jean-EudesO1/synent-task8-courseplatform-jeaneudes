@@ -22,6 +22,16 @@ aussi `JWT_SECRET` avec une valeur aléatoire d'au moins 32 octets. Pour ajouter
 une valeur générée localement sans l'afficher dans le terminal, si cette clé
 n'est pas déjà définie dans le fichier :
 
+`DNS_SERVERS` est facultative. Si elle est absente ou vide, Node.js conserve
+la configuration DNS du système. Si le résolveur système échoue pour les
+enregistrements SRV de MongoDB Atlas alors que `nslookup` réussit, vous pouvez
+définir une liste d'adresses IP de serveurs DNS séparées par des virgules,
+par exemple `DNS_SERVERS=8.8.8.8,8.8.4.4`. Node.js applique cette liste au
+démarrage, avant toute connexion MongoDB. Ce réglage s'applique au serveur,
+aux scripts backend qui se connectent à la base et aux tests d'intégration.
+Utilisez les serveurs DNS autorisés sur votre réseau ; un DNS public peut être
+bloqué par le réseau ou la politique de votre organisation.
+
 ```powershell
 $randomBytes = New-Object byte[] 48
 $randomGenerator = [Security.Cryptography.RandomNumberGenerator]::Create()
@@ -249,3 +259,64 @@ contrôle d'accès. Cette étape ne met pas en place de DRM.
 
 Cette étape ajoute la lecture des leçons et la progression, mais pas de
 paiement supplémentaire, d'inscription commerciale, ni de lecteur DRM.
+
+## Administration des utilisateurs et inscriptions
+
+Après connexion avec un compte administrateur, ouvrez « Administration » puis
+les sections « Utilisateurs » et « Inscriptions ». Ces pages sont en lecture
+seule : elles permettent de rechercher et filtrer les résultats, puis de les
+parcourir par pages. L’API exige une session valide et le rôle `admin`. La liste
+des utilisateurs n’expose ni hash de mot de passe, ni jeton. La liste des
+inscriptions affiche l’origine et la progression actuelle ; une inscription
+`payment` montre le montant, la devise et le statut associé. Une inscription
+`development-test` est explicitement libellée « Test local · non payé » et ne
+présente aucun paiement.
+
+La création d’un compte continue d’envoyer uniquement l’e-mail de vérification
+d’adresse prévu à cet effet. Une tentative d’inscription avec une adresse déjà
+utilisée est refusée et ne déclenche pas de nouvel e-mail. Aucun message de
+bienvenue redondant n’est ajouté.
+
+### Notifications d’inscription
+
+Après qu’une confirmation serveur a vérifié un paiement Razorpay capturé et
+créé l’inscription, une notification de confirmation est enregistrée dans
+MongoDB et l’envoi SMTP est tenté. La notification et l’inscription payée sont
+créées dans la même transaction ; la livraison SMTP se fait ensuite. Ainsi,
+une panne SMTP ne peut pas annuler le paiement confirmé ni l’accès au cours.
+Les confirmations répétées réutilisent l’inscription existante et ne créent
+pas de nouvelle notification.
+
+Les notifications ont un état (`pending`, `sending`, `sent` ou `failed`) et un
+compteur de tentatives. Les erreurs de livraison ne stockent qu’un code
+technique filtré, jamais le contenu SMTP, les identifiants ou un secret. Pour
+relancer manuellement les notifications échouées, depuis PowerShell :
+
+```powershell
+Set-Location .\backend
+npm run email:retry
+```
+
+La relance récupère aussi les envois restés en état `sending` après une
+interruption de processus. Une livraison e-mail via SMTP ne peut pas garantir
+une sémantique « exactement une fois » : si le serveur de messagerie accepte le
+message mais que la connexion tombe avant l’accusé de réception, une relance
+peut produire un doublon. La clé d’idempotence empêche les confirmations de
+paiement répétées de créer plusieurs notifications en base, mais ne peut pas
+annuler ce cas ambigu côté fournisseur SMTP.
+
+Pour tester manuellement l’envoi, utilisez la section « Tester une notification
+e-mail » des pages d’administration en lançant le backend avec
+`NODE_ENV=development`. Le point d’accès exige aussi un administrateur et une
+protection CSRF ; il refuse toute exécution dans un autre environnement. Le
+message porte `[TEST]` dans son objet et précise qu’aucun paiement ni aucune
+inscription n’a été créé. Cette fonction n’est pas une notification d’achat.
+Les tests automatisés utilisent un transport factice ; ils vérifient notamment
+qu’un échec SMTP laisse l’inscription active et que la notification peut être
+relancée. Ils ne valident pas la livraison réelle par Gmail.
+
+Le parcours réel Razorpay Checkout en mode Test reste **non validé** : seuls les
+tests automatisés avec un service Razorpay factice ont été réalisés, faute
+d’accès aux clés de test. L’envoi SMTP réel et l’achat Checkout réel doivent
+être vérifiés séparément lorsque les configurations correspondantes seront
+disponibles.

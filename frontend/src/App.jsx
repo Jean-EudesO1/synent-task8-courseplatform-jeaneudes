@@ -9,7 +9,9 @@ import {
 import {
   BrowserRouter,
   Link,
+  NavLink,
   Navigate,
+  Outlet,
   Route,
   Routes,
   useParams,
@@ -17,6 +19,7 @@ import {
   useNavigate,
 } from 'react-router-dom'
 import { postWithCsrf, readApiResponse, requestWithCsrf } from './api.js'
+import { isAdminDirectoryResponse } from './adminDirectory.js'
 import './App.css'
 
 const AuthContext = createContext(null)
@@ -1363,6 +1366,7 @@ function AdminPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
+  const [reloadKey, setReloadKey] = useState(0)
 
   async function loadCourses() {
     setLoading(true)
@@ -1380,7 +1384,7 @@ function AdminPage() {
 
   useEffect(() => {
     loadCourses()
-  }, [])
+  }, [reloadKey])
 
   function startNewCourse() {
     setSelectedId('')
@@ -1528,12 +1532,21 @@ function AdminPage() {
           {error || message}
         </p>
       )}
+      {error && !loading && (
+        <button
+          className="secondary-button admin-retry-button"
+          onClick={() => setReloadKey((current) => current + 1)}
+          type="button"
+        >
+          Réessayer
+        </button>
+      )}
       <div className="admin-layout">
         <aside className="admin-course-list">
           <h2>Cours ({courses.length})</h2>
           {loading ? (
             <p className="notice" role="status">Chargement des cours…</p>
-          ) : courses.length === 0 ? (
+          ) : error ? null : courses.length === 0 ? (
             <p className="empty-admin-list">Aucun cours pour le moment.</p>
           ) : (
             <ul>
@@ -1806,6 +1819,308 @@ function AdminPage() {
   )
 }
 
+function AdminSectionNavigation() {
+  return (
+    <nav aria-label="Sections d’administration" className="admin-section-nav">
+      <NavLink className={({ isActive }) => isActive ? 'active' : undefined} end to="/administration">
+        Cours
+      </NavLink>
+      <NavLink className={({ isActive }) => isActive ? 'active' : undefined} end to="/administration/utilisateurs">
+        Utilisateurs
+      </NavLink>
+      <NavLink className={({ isActive }) => isActive ? 'active' : undefined} end to="/administration/inscriptions">
+        Inscriptions
+      </NavLink>
+    </nav>
+  )
+}
+
+function AdminLayout() {
+  return (
+    <div className="admin-layout-page">
+      <AdminSectionNavigation />
+      <Outlet />
+    </div>
+  )
+}
+
+function AdminTestEmailForm() {
+  const [email, setEmail] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+
+  async function sendTestEmail(event) {
+    event.preventDefault()
+    setBusy(true)
+    setError('')
+    setMessage('')
+    try {
+      const result = await requestWithCsrf('/api/admin/notifications/test-email', {
+        method: 'POST',
+        body: { email },
+      })
+      setMessage(result.message)
+    } catch (requestError) {
+      setError(requestError.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <form className="admin-test-email" onSubmit={sendTestEmail}>
+      <h2>Tester une notification e-mail</h2>
+      <p className="field-hint">Développement uniquement. Le message portera la mention TEST et ne confirmera ni inscription ni paiement.</p>
+      <div className="admin-search-row">
+        <label>
+          Adresse de destination
+          <input
+            autoComplete="email"
+            onChange={(event) => setEmail(event.target.value)}
+            required
+            type="email"
+            value={email}
+          />
+        </label>
+        <button className="secondary-button" disabled={busy} type="submit">
+          {busy ? 'Envoi…' : 'Envoyer un e-mail de test'}
+        </button>
+      </div>
+      {error && <p className="notice error" role="alert">{error}</p>}
+      {message && <p className="notice" role="status">{message}</p>}
+    </form>
+  )
+}
+
+function AdminDirectoryPage({ kind }) {
+  const isUsers = kind === 'users'
+  const [searchParams, setSearchParams] = useSearchParams()
+  const queryString = searchParams.toString()
+  const [search, setSearch] = useState(searchParams.get('q') || '')
+  const [filter, setFilter] = useState(
+    searchParams.get(isUsers ? 'role' : 'source') || '',
+  )
+  const [verificationFilter, setVerificationFilter] = useState(searchParams.get('emailVerified') || '')
+  const [paymentFilter, setPaymentFilter] = useState(searchParams.get('paymentStatus') || '')
+  const [items, setItems] = useState([])
+  const [pagination, setPagination] = useState(null)
+  const [state, setState] = useState('loading')
+  const [error, setError] = useState('')
+  const [reloadKey, setReloadKey] = useState(0)
+
+  useEffect(() => {
+    setSearch(searchParams.get('q') || '')
+    setFilter(searchParams.get(isUsers ? 'role' : 'source') || '')
+    setVerificationFilter(searchParams.get('emailVerified') || '')
+    setPaymentFilter(searchParams.get('paymentStatus') || '')
+  }, [queryString, isUsers])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    let active = true
+    const endpoint = isUsers ? '/api/admin/users' : '/api/admin/enrollments'
+    setState('loading')
+    setError('')
+    setItems([])
+    setPagination(null)
+    fetch(`${endpoint}${queryString ? `?${queryString}` : ''}`, {
+      credentials: 'include',
+      signal: controller.signal,
+    })
+      .then((response) => readApiResponse(response, endpoint))
+      .then((data) => {
+        const rows = isUsers ? data.users : data.enrollments
+        if (!isAdminDirectoryResponse(data, kind)) {
+          throw new Error('Le serveur a renvoyé une liste invalide. Réessayez.')
+        }
+        if (!active) return
+        setItems(rows)
+        setPagination(data.pagination)
+        setState('success')
+      })
+      .catch((requestError) => {
+        if (!active || requestError.name === 'AbortError') return
+        setError(requestError.message)
+        setState('error')
+      })
+    return () => {
+      active = false
+      controller.abort()
+    }
+  }, [queryString, isUsers, reloadKey])
+
+  function applyFilters(event) {
+    event.preventDefault()
+    const next = new URLSearchParams()
+    if (search.trim()) next.set('q', search.trim())
+    if (filter) next.set(isUsers ? 'role' : 'source', filter)
+    if (isUsers && verificationFilter) next.set('emailVerified', verificationFilter)
+    if (!isUsers && paymentFilter) next.set('paymentStatus', paymentFilter)
+    next.set('page', '1')
+    setSearchParams(next)
+  }
+
+  function changePage(page) {
+    const next = new URLSearchParams(searchParams)
+    next.set('page', String(page))
+    setSearchParams(next)
+  }
+
+  const currentPage = pagination?.page || Number(searchParams.get('page')) || 1
+
+  return (
+    <section className="admin-page">
+      <div className="admin-heading">
+        <div>
+          <p className="eyebrow">Consultation réservée aux administrateurs</p>
+          <h1>{isUsers ? 'Utilisateurs' : 'Inscriptions'}</h1>
+          <p className="intro">
+            {isUsers
+              ? 'Consultez les comptes, leur rôle et leur statut de vérification.'
+              : 'Consultez l’origine des inscriptions, la progression et les paiements associés.'}
+          </p>
+        </div>
+      </div>
+      <form className="admin-directory-filters" onSubmit={applyFilters}>
+        <label>
+          Recherche
+          <input
+            maxLength="100"
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder={isUsers ? 'Nom ou adresse e-mail' : 'Utilisateur, e-mail ou cours'}
+            value={search}
+          />
+        </label>
+        <label>
+          {isUsers ? 'Rôle' : 'Origine'}
+          <select onChange={(event) => setFilter(event.target.value)} value={filter}>
+            <option value="">Tous</option>
+            {isUsers ? (
+              <>
+                <option value="student">Étudiant</option>
+                <option value="admin">Administrateur</option>
+              </>
+            ) : (
+              <>
+                <option value="payment">Razorpay</option>
+                <option value="development-test">Test local · non payé</option>
+              </>
+            )}
+          </select>
+        </label>
+        {isUsers ? (
+          <label>
+            E-mail
+            <select onChange={(event) => setVerificationFilter(event.target.value)} value={verificationFilter}>
+              <option value="">Tous</option>
+              <option value="true">Vérifié</option>
+              <option value="false">Non vérifié</option>
+            </select>
+          </label>
+        ) : (
+          <label>
+            Statut du paiement
+            <select onChange={(event) => setPaymentFilter(event.target.value)} value={paymentFilter}>
+              <option value="">Tous</option>
+              <option value="captured">Capturé</option>
+              <option value="authorized">Autorisé, en attente</option>
+              <option value="created">Créé, en attente</option>
+            </select>
+          </label>
+        )}
+        <button className="primary-button" type="submit">Rechercher</button>
+      </form>
+      {isUsers && <AdminTestEmailForm />}
+      {error && (
+        <div className="admin-load-error">
+          <p className="notice error" role="alert">{error}</p>
+          <button
+            className="secondary-button"
+            onClick={() => setReloadKey((current) => current + 1)}
+            type="button"
+          >
+            Réessayer
+          </button>
+        </div>
+      )}
+      {state === 'loading' ? (
+        <p className="notice" role="status">Chargement des {isUsers ? 'utilisateurs' : 'inscriptions'}…</p>
+      ) : state === 'error' ? null : items.length === 0 ? (
+        <p className="notice" role="status">Aucun résultat pour ces critères.</p>
+      ) : (
+        <div className="admin-table-wrap">
+          <table className="admin-data-table">
+            {isUsers ? (
+              <>
+                <thead>
+                  <tr><th>Nom</th><th>E-mail</th><th>Rôle</th><th>Vérification</th><th>Créé le</th></tr>
+                </thead>
+                <tbody>
+                  {items.map((user) => (
+                    <tr key={user.id}>
+                      <td>{user.name}</td>
+                      <td>{user.email}</td>
+                      <td>{user.role === 'admin' ? 'Administrateur' : 'Étudiant'}</td>
+                      <td>{user.emailVerified ? 'Vérifié' : 'Non vérifié'}</td>
+                      <td>{new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium' }).format(new Date(user.createdAt))}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </>
+            ) : (
+              <>
+                <thead>
+                  <tr><th>Utilisateur</th><th>Cours</th><th>Date</th><th>Progression</th><th>Origine et paiement</th></tr>
+                </thead>
+                <tbody>
+                  {items.map((enrollment) => (
+                    <tr key={enrollment.id}>
+                      <td>{enrollment.user.name}<small>{enrollment.user.email}</small></td>
+                      <td>{enrollment.course.title}<small>{enrollment.course.status === 'archived' ? 'Archivé' : 'Actif'}</small></td>
+                      <td>{new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium' }).format(new Date(enrollment.enrolledAt))}</td>
+                      <td>{enrollment.progress.percentage}% ({enrollment.progress.completedCount}/{enrollment.progress.totalCount})</td>
+                      <td>
+                        {enrollment.source === 'development-test' ? (
+                          <strong>Test local · non payé</strong>
+                        ) : enrollment.payment ? (
+                          <>
+                            <strong>Razorpay · {enrollment.payment.status === 'captured' ? 'capturé' : enrollment.payment.status}</strong>
+                            <small>{formatPrice(enrollment.payment.amount, enrollment.payment.currency)}</small>
+                          </>
+                        ) : (
+                          <strong>Razorpay · paiement associé indisponible</strong>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </>
+            )}
+          </table>
+        </div>
+      )}
+      {pagination && pagination.totalPages > 1 && (
+        <div aria-label="Pagination" className="admin-pagination">
+          <button
+            className="secondary-button"
+            disabled={currentPage <= 1 || state === 'loading'}
+            onClick={() => changePage(currentPage - 1)}
+            type="button"
+          >Précédent</button>
+          <span>Page {currentPage} sur {pagination.totalPages} · {pagination.total} résultat(s)</span>
+          <button
+            className="secondary-button"
+            disabled={currentPage >= pagination.totalPages || state === 'loading'}
+            onClick={() => changePage(currentPage + 1)}
+            type="button"
+          >Suivant</button>
+        </div>
+      )}
+    </section>
+  )
+}
+
 function SiteHeader() {
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
@@ -1874,8 +2189,12 @@ function AppRoutes() {
           />
           <Route
             path="/administration"
-            element={<ProtectedRoute><AdminRoute><AdminPage /></AdminRoute></ProtectedRoute>}
-          />
+            element={<ProtectedRoute><AdminRoute><AdminLayout /></AdminRoute></ProtectedRoute>}
+          >
+            <Route index element={<AdminPage />} />
+            <Route path="utilisateurs" element={<AdminDirectoryPage key="users" kind="users" />} />
+            <Route path="inscriptions" element={<AdminDirectoryPage key="enrollments" kind="enrollments" />} />
+          </Route>
           <Route path="/connexion" element={<GuestRoute><AuthForm mode="login" /></GuestRoute>} />
           <Route path="/inscription" element={<GuestRoute><AuthForm mode="register" /></GuestRoute>} />
           <Route path="/verify-email" element={<VerifyEmailPage />} />

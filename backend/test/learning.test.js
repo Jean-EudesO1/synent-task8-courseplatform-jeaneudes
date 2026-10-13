@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { after, before, test } from 'node:test'
 import mongoose from 'mongoose'
+import { configureDnsServers } from '../src/utils/dnsConfig.js'
 
 process.env.NODE_ENV = 'test'
 process.env.JWT_SECRET ||= randomUUID() + randomUUID()
@@ -75,6 +76,7 @@ before(async () => {
   if (!process.env.MONGODB_URI) {
     throw new Error('MONGODB_URI doit être configurée localement pour les tests d’intégration.')
   }
+  configureDnsServers()
   await mongoose.connect(process.env.MONGODB_URI)
   users.push(
     await User.create({

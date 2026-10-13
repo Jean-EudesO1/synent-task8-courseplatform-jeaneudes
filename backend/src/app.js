@@ -5,6 +5,7 @@ import express from 'express'
 import mongoose from 'mongoose'
 import authRoutes from './routes/authRoutes.js'
 import adminCourseRoutes from './routes/adminCourseRoutes.js'
+import adminManagementRoutes from './routes/adminManagementRoutes.js'
 import courseRoutes from './routes/courseRoutes.js'
 import paymentRoutes from './routes/paymentRoutes.js'
 import { frontendUrl } from './config.js'
@@ -34,6 +35,7 @@ app.get('/api/health', (_request, response) => {
 app.use('/api/auth', authRoutes)
 app.use('/api/courses', courseRoutes)
 app.use('/api/admin/courses', adminCourseRoutes)
+app.use('/api/admin', adminManagementRoutes)
 app.use('/api', paymentRoutes)
 
 app.use((error, _request, response, _next) => {

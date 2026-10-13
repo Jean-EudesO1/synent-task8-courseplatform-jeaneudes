@@ -607,6 +607,11 @@ button:disabled {
   align-self: start;
 }
 
+.admin-layout-page {
+  width: 100%;
+  align-self: start;
+}
+
 .admin-heading {
   display: flex;
   align-items: center;
@@ -617,6 +622,185 @@ button:disabled {
 
 .admin-heading .intro {
   margin-bottom: 0;
+}
+
+.admin-section-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 24px;
+}
+
+.admin-section-nav a {
+  padding: 9px 13px;
+  border: 1px solid #c8e4d8;
+  border-radius: 9px;
+  color: #176b50;
+  font-weight: 650;
+  text-decoration: none;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.admin-section-nav a:hover {
+  border-color: #176b50;
+  background: #edf6f1;
+  color: #174a39;
+}
+
+.admin-section-nav a.active,
+.admin-section-nav a[aria-current="page"] {
+  border-color: #176b50;
+  background: #176b50;
+  color: #fff;
+}
+
+.admin-section-nav a:focus-visible {
+  outline: 3px solid #91c9ad;
+  outline-offset: 3px;
+}
+
+.admin-retry-button {
+  margin: 0 0 18px;
+}
+
+.admin-load-error {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.admin-load-error .notice {
+  flex: 1;
+}
+
+.admin-load-error .secondary-button {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.admin-directory-filters {
+  display: grid;
+  grid-template-columns: minmax(180px, 2fr) repeat(2, minmax(150px, 1fr)) auto;
+  align-items: end;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 18px;
+  border: 1px solid #dce5e2;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.admin-directory-filters label,
+.admin-test-email label {
+  display: grid;
+  gap: 7px;
+  color: #263b33;
+  font-size: 0.9rem;
+  font-weight: 650;
+}
+
+.admin-directory-filters input,
+.admin-directory-filters select,
+.admin-test-email input {
+  width: 100%;
+  min-height: 44px;
+  padding: 9px 11px;
+  border: 1px solid #cbd8d2;
+  border-radius: 8px;
+  background: #fff;
+  color: #14251f;
+  font: inherit;
+}
+
+.admin-directory-filters .primary-button {
+  min-height: 44px;
+}
+
+.admin-test-email {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 20px;
+  padding: 18px;
+  border: 1px solid #dce5e2;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.admin-test-email h2 {
+  margin: 0;
+  color: #14251f;
+  font-size: 1.1rem;
+}
+
+.admin-search-row {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+}
+
+.admin-search-row label {
+  flex: 1;
+}
+
+.admin-search-row .secondary-button {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.admin-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid #dce5e2;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.admin-data-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.admin-data-table th,
+.admin-data-table td {
+  padding: 13px 15px;
+  border-bottom: 1px solid #e7eeea;
+  vertical-align: top;
+}
+
+.admin-data-table th {
+  background: #f4f8f6;
+  color: #263b33;
+  font-size: 0.84rem;
+  white-space: nowrap;
+}
+
+.admin-data-table td {
+  color: #263b33;
+  font-size: 0.91rem;
+}
+
+.admin-data-table td small {
+  display: block;
+  margin-top: 4px;
+  color: #687970;
+  overflow-wrap: anywhere;
+}
+
+.admin-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 18px;
+  color: #52645d;
+  text-align: center;
+}
+
+.admin-pagination .secondary-button {
+  min-height: 42px;
+  margin: 0;
 }
 
 .admin-layout {
@@ -1191,6 +1375,35 @@ button:disabled {
   .admin-save-row {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .admin-directory-filters,
+  .admin-search-row,
+  .admin-pagination {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-directory-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-search-row .secondary-button,
+  .admin-directory-filters .primary-button {
+    width: 100%;
+  }
+
+  .admin-pagination {
+    display: flex;
+  }
+
+  .admin-load-error {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-load-error .secondary-button {
+    width: 100%;
   }
 
   .admin-heading > button,

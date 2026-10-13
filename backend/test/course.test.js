@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { after, before, test } from 'node:test'
 import mongoose from 'mongoose'
+import { configureDnsServers } from '../src/utils/dnsConfig.js'
 
 const [{ default: app }, { default: Course }] = await Promise.all([
   import('../src/app.js'),
@@ -80,6 +81,7 @@ before(async () => {
   if (!process.env.MONGODB_URI) {
     throw new Error('MONGODB_URI doit être configurée localement pour les tests d’intégration.')
   }
+  configureDnsServers()
   await mongoose.connect(process.env.MONGODB_URI)
   await Course.insertMany(courses)
 })

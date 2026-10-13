@@ -1,6 +1,7 @@
 import 'dotenv/config'
 import mongoose from 'mongoose'
 import Course from '../src/models/Course.js'
+import { connectMongoDB } from '../src/utils/connectMongoDB.js'
 
 const placeholderImage = '/courses/course-placeholder.svg'
 const demoCourses = [
@@ -120,7 +121,7 @@ if (!process.env.MONGODB_URI) {
 }
 
 try {
-  await mongoose.connect(process.env.MONGODB_URI)
+  await connectMongoDB(process.env.MONGODB_URI)
   let inserted = 0
 
   for (const course of demoCourses) {

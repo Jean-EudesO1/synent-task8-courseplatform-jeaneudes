@@ -1,6 +1,7 @@
 import 'dotenv/config'
 import mongoose from 'mongoose'
 import User from '../src/models/User.js'
+import { connectMongoDB } from '../src/utils/connectMongoDB.js'
 
 const email = process.argv[2]?.trim().toLowerCase()
 
@@ -12,7 +13,7 @@ if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
   process.exitCode = 1
 } else {
   try {
-    await mongoose.connect(process.env.MONGODB_URI)
+    await connectMongoDB(process.env.MONGODB_URI)
     const user = await User.findOne({ email }).select('role')
     if (!user) {
       console.error('Aucun utilisateur existant ne correspond à cette adresse.')
