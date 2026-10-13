@@ -184,6 +184,7 @@ export async function confirmCoursePayment(request, response, next) {
           userId: payment.userId,
           courseId: payment.courseId,
           paymentId: confirmedPayment._id,
+          source: 'payment',
           enrolledAt: new Date(),
         }], { session })
         await Course.updateOne(
@@ -238,6 +239,24 @@ export async function listMyEnrollments(request, response, next) {
         .map((enrollment) => ({
           id: String(enrollment._id),
           enrolledAt: enrollment.enrolledAt,
+          source: enrollment.source || 'payment',
+          progress: (() => {
+            const currentLessonIds = new Set(
+              enrollment.courseId.modules.flatMap((module) =>
+                module.lessons.map((lesson) => String(lesson._id))),
+            )
+            const completedIds = new Set(
+              (enrollment.completedLessonIds || [])
+                .map(String)
+                .filter((lessonId) => currentLessonIds.has(lessonId)),
+            )
+            const totalCount = currentLessonIds.size
+            return {
+              completedCount: completedIds.size,
+              totalCount,
+              percentage: totalCount ? Math.round((completedIds.size / totalCount) * 100) : 0,
+            }
+          })(),
           course: {
             id: String(enrollment.courseId._id),
             title: enrollment.courseId.title,

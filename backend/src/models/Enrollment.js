@@ -15,7 +15,21 @@ const enrollmentSchema = new mongoose.Schema(
     paymentId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Payment',
+      required() {
+        return this.source === 'payment'
+      },
+    },
+    source: {
+      type: String,
+      enum: ['payment', 'development-test'],
+      default: 'payment',
       required: true,
+    },
+    completedLessonIds: {
+      type: [{
+        type: mongoose.Schema.Types.ObjectId,
+      }],
+      default: [],
     },
     enrolledAt: {
       type: Date,

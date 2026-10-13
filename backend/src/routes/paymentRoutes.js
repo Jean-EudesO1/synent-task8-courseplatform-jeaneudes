@@ -7,9 +7,11 @@ import {
 import { requireAuth } from '../middleware/requireAuth.js'
 import { requireCsrf } from '../middleware/requireCsrf.js'
 import { requireVerifiedEmail } from '../middleware/requireVerifiedEmail.js'
+import learningRoutes from './learningRoutes.js'
 
 const router = Router()
 
+router.use('/learning', learningRoutes)
 router.get('/enrollments/me', requireAuth, listMyEnrollments)
 router.post(
   '/orders',

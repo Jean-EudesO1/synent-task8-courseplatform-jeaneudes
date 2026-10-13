@@ -193,5 +193,59 @@ signature, les montants, la devise, l'utilisateur, l'état capturé, les
 confirmations répétées et l'accès aux inscriptions, sans contacter Razorpay ni
 effectuer de débit. Ils constituent les seuls tests Razorpay réalisés à ce
 stade et ne remplacent pas l'essai Checkout réel qui reste bloqué par l'accès
-aux clés de test. Cette étape n'ajoute pas encore de lecteur vidéo ni de suivi
-de progression.
+aux clés de test.
+
+## Apprentissage et progression
+
+Depuis « Mes cours », ouvrez un cours pour lire ses modules et leçons dans leur
+ordre actuel. La progression est enregistrée par compte et cours, reste
+disponible après actualisation/reconnexion, et son pourcentage est recalculé
+par le serveur à partir des leçons présentes. Réordonner les modules ou les
+leçons ne perd pas les états terminés, car les identifiants des leçons restent
+stables. Les leçons supprimées ne sont plus comptées ; un cours sans leçon
+affiche une progression de 0 %.
+
+### Inscription locale de développement (sans Razorpay)
+
+Pour tester le lecteur et la progression avec un compte existant dont l'adresse
+est vérifiée, et un cours existant publié, depuis PowerShell :
+
+```powershell
+Set-Location .\backend
+$env:NODE_ENV = 'development'
+npm run enrollment:test -- add adresse-du-compte@example.com ID_DU_COURS
+```
+
+Cette commande est strictement refusée hors de `NODE_ENV=development` et n'est
+pas exposée par une route HTTP ni lancée au démarrage. Elle crée une inscription
+marquée `development-test` ; elle **n'est pas payée** et aucun document
+`Payment` n'est créé. La commande est idempotente. Pour retirer uniquement
+cette inscription de test :
+
+```powershell
+npm run enrollment:test -- remove adresse-du-compte@example.com ID_DU_COURS
+```
+
+Elle ne supprime jamais les inscriptions de source `payment`. Arrêtez et
+redémarrez le backend avec l'environnement local habituel après ce test si vous
+avez défini `NODE_ENV` dans ce terminal, ou exécutez cette commande dans un
+terminal PowerShell distinct de celui qui lance le serveur.
+
+Quand une leçon n'a pas d'URL vidéo, le lecteur utilise à titre de démonstration
+la vidéo [flower.mp4 des exemples MDN](https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4),
+publiée sous licence CC0 (domaine public) ; la documentation de l'élément vidéo
+est sur [MDN Web Docs](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/video).
+Cette vidéo de démonstration n'est pas enregistrée dans le cours.
+
+**Limite de protection vidéo :** les routes d'apprentissage vérifient la session
+et l'inscription avant de révéler le contenu et l'URL vidéo. Toutefois, si une
+URL HTTP/HTTPS pointe vers un fichier directement accessible publiquement,
+toute personne qui obtient cette URL peut potentiellement la partager ou
+l'ouvrir hors de la plateforme. L'authentification de l'application ne protège
+pas le fichier hébergé publiquement et le lecteur HTML5 n'empêche pas sa copie.
+Pour une véritable protection, hébergez les vidéos dans un stockage privé et
+servez-les avec des URL signées à durée courte ou un fournisseur vidéo avec
+contrôle d'accès. Cette étape ne met pas en place de DRM.
+
+Cette étape ajoute la lecture des leçons et la progression, mais pas de
+paiement supplémentaire, d'inscription commerciale, ni de lecteur DRM.

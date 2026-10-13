@@ -1025,9 +1025,9 @@ function MyCoursesPage() {
       )}
       {state === 'success' && enrollments.length > 0 && (
         <div className="course-grid">
-          {enrollments.map(({ id: enrollmentId, enrolledAt, course }) => (
+          {enrollments.map(({ id: enrollmentId, enrolledAt, progress, source, course }) => (
             <article className="course-card" key={enrollmentId}>
-              <Link className="course-card-link" to={`/cours/${course.id}`}>
+              <Link className="course-card-link" to={`/apprendre/${course.id}`}>
                 <img
                   alt=""
                   className="course-image"
@@ -1038,16 +1038,259 @@ function MyCoursesPage() {
                   <span className="course-category">{course.category}</span>
                   <h2>{course.title}</h2>
                   <span className={`status-pill ${course.status === 'published' ? 'published' : ''}`}>
-                    {course.status === 'archived' ? 'Archivé' : 'Inscription confirmée'}
+                    {source === 'development-test'
+                      ? 'Accès de test · non payé'
+                      : course.status === 'archived' ? 'Archivé' : 'Inscription confirmée'}
                   </span>
                   <span className="enrollment-date">
                     Inscrit le {new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium' }).format(new Date(enrolledAt))}
                   </span>
+                  <span className="enrollment-progress">
+                    Progression : {progressPercentage(progress)} %
+                  </span>
+                  <span
+                    aria-label={`Progression : ${progressPercentage(progress)} %`}
+                    className="progress-track compact-progress"
+                    role="progressbar"
+                    aria-valuenow={progressPercentage(progress)}
+                    aria-valuemin="0"
+                    aria-valuemax="100"
+                  >
+                    <span style={{ width: `${progressPercentage(progress)}%` }} />
+                  </span>
                   <span className="course-price">{formatPrice(course.price, course.currency)}</span>
+                  <span className="course-open-link">Continuer le cours →</span>
                 </div>
               </Link>
             </article>
           ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+const DEMO_VIDEO_URL = 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4'
+
+function progressPercentage(progress) {
+  return progress?.percentage || 0
+}
+
+function LearningPage() {
+  const { courseId } = useParams()
+  const [course, setCourse] = useState(null)
+  const [progress, setProgress] = useState({ completedCount: 0, totalCount: 0, percentage: 0 })
+  const [activeLessonId, setActiveLessonId] = useState('')
+  const [state, setState] = useState('loading')
+  const [error, setError] = useState('')
+  const [videoError, setVideoError] = useState(false)
+  const [savingLessonId, setSavingLessonId] = useState('')
+  const [progressError, setProgressError] = useState('')
+
+  useEffect(() => {
+    const controller = new AbortController()
+    setState('loading')
+    setError('')
+    setCourse(null)
+    fetch(`/api/learning/courses/${encodeURIComponent(courseId)}`, {
+      credentials: 'include',
+      signal: controller.signal,
+    })
+      .then((response) => readApiResponse(response, '/api/learning/courses'))
+      .then((data) => {
+        setCourse(data.course)
+        setProgress(data.progress)
+        const firstLesson = data.course.modules
+          .flatMap((module) => module.lessons)[0]
+        setActiveLessonId(firstLesson?.id || '')
+        setState('success')
+      })
+      .catch((requestError) => {
+        if (requestError.name === 'AbortError') return
+        setError(requestError.message)
+        setState('error')
+      })
+    return () => controller.abort()
+  }, [courseId])
+
+  const lessons = course?.modules.flatMap((module) =>
+    module.lessons.map((lesson) => ({ ...lesson, moduleTitle: module.title }))) || []
+  const activeIndex = lessons.findIndex((lesson) => lesson.id === activeLessonId)
+  const activeLesson = activeIndex >= 0 ? lessons[activeIndex] : null
+
+  useEffect(() => {
+    setVideoError(false)
+    setProgressError('')
+  }, [activeLessonId])
+
+  async function toggleLesson(lesson) {
+    setSavingLessonId(lesson.id)
+    setProgressError('')
+    try {
+      const result = await requestWithCsrf(
+        `/api/learning/courses/${courseId}/progress`,
+        {
+          method: 'PATCH',
+          body: { lessonId: lesson.id, completed: !lesson.completed },
+        },
+      )
+      const completedIds = new Set(result.progress.completedLessonIds)
+      setCourse((current) => ({
+        ...current,
+        modules: current.modules.map((module) => ({
+          ...module,
+          lessons: module.lessons.map((entry) => ({
+            ...entry,
+            completed: completedIds.has(entry.id),
+          })),
+        })),
+      }))
+      setProgress(result.progress)
+    } catch (requestError) {
+      setProgressError(requestError.message)
+    } finally {
+      setSavingLessonId('')
+    }
+  }
+
+  if (state === 'loading') return <p className="notice" role="status">Chargement de votre cours…</p>
+  if (state === 'error') {
+    return (
+      <section className="panel learning-error">
+        <p className="eyebrow">Espace d’apprentissage</p>
+        <h1>Accès au cours impossible</h1>
+        <p className="notice error" role="alert">{error}</p>
+        <p className="intro">Vérifiez que vous êtes connecté et que votre inscription à ce cours est active.</p>
+        <Link className="primary-button button-link" to="/mes-cours">Retour à Mes cours</Link>
+      </section>
+    )
+  }
+
+  return (
+    <section className="learning-page">
+      <Link className="back-link" to="/mes-cours">← Retour à Mes cours</Link>
+      <div className="learning-heading">
+        <div>
+          <p className="eyebrow">Votre cours</p>
+          <h1>{course.title}</h1>
+        </div>
+        <div className="learning-progress">
+          <strong>{progress.percentage}% terminé</strong>
+          <span>{progress.completedCount} sur {progress.totalCount} leçons</span>
+          <div
+            aria-label={`Progression du cours : ${progress.percentage} %`}
+            aria-valuenow={progress.percentage}
+            aria-valuemin="0"
+            aria-valuemax="100"
+            className="progress-track"
+            role="progressbar"
+          >
+            <span style={{ width: `${progress.percentage}%` }} />
+          </div>
+        </div>
+      </div>
+
+      {progressError && <p className="notice error" role="alert">{progressError}</p>}
+      {course.enrollmentSource === 'development-test' && (
+        <p className="notice development-enrollment-notice" role="status">
+          Accès de développement : cette inscription de test n’est pas payée et aucun paiement Razorpay n’a été créé.
+        </p>
+      )}
+      {lessons.length === 0 ? (
+        <p className="notice" role="status">Ce cours ne contient pas encore de leçons.</p>
+      ) : (
+        <div className="learning-layout">
+          <aside aria-label="Programme et navigation des leçons" className="learning-sidebar">
+            {course.modules.map((module, moduleIndex) => (
+              <section className="learning-module" key={module.id}>
+                <h2><span>Module {moduleIndex + 1}</span>{module.title}</h2>
+                <ol>
+                  {module.lessons.map((lesson, lessonIndex) => (
+                    <li key={lesson.id}>
+                      <button
+                        aria-current={activeLessonId === lesson.id ? 'step' : undefined}
+                        className={`lesson-nav-button ${activeLessonId === lesson.id ? 'active' : ''}`}
+                        onClick={() => setActiveLessonId(lesson.id)}
+                        type="button"
+                      >
+                        <span aria-hidden="true" className={`lesson-check ${lesson.completed ? 'complete' : ''}`}>
+                          {lesson.completed ? '✓' : `${lessonIndex + 1}`}
+                        </span>
+                        <span>{lesson.title}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            ))}
+          </aside>
+
+          <article aria-live="polite" className="lesson-viewer">
+            {activeLesson && (
+              <>
+                <p className="eyebrow">{activeLesson.moduleTitle}</p>
+                <h2>{activeLesson.title}</h2>
+                <div className="video-frame">
+                  {videoError ? (
+                    <div className="video-error" role="alert">
+                      <strong>Cette vidéo ne peut pas être lue.</strong>
+                      <span>Vérifiez votre connexion ou contactez l’administrateur du cours.</span>
+                    </div>
+                  ) : (
+                    <video
+                      controls
+                      onError={() => setVideoError(true)}
+                      preload="metadata"
+                      src={activeLesson.videoUrl || DEMO_VIDEO_URL}
+                    >
+                      Votre navigateur ne prend pas en charge la lecture vidéo.
+                    </video>
+                  )}
+                </div>
+                {!activeLesson.videoUrl && (
+                  <p className="video-attribution">
+                    Vidéo de démonstration : <a href="https://developer.mozilla.org/en-US/docs/Web/HTML/Element/video" rel="noreferrer" target="_blank">MDN Web Docs (CC0)</a>.
+                  </p>
+                )}
+                {activeLesson.content && (
+                  <section className="lesson-content">
+                    <h3>Contenu de la leçon</h3>
+                    <p>{activeLesson.content}</p>
+                  </section>
+                )}
+                <div className="lesson-controls">
+                  <button
+                    className="secondary-button"
+                    disabled={activeIndex <= 0}
+                    onClick={() => setActiveLessonId(lessons[activeIndex - 1]?.id)}
+                    type="button"
+                  >
+                    Leçon précédente
+                  </button>
+                  <button
+                    className={`primary-button ${activeLesson.completed ? 'completed-button' : ''}`}
+                    disabled={savingLessonId === activeLesson.id}
+                    onClick={() => toggleLesson(activeLesson)}
+                    type="button"
+                  >
+                    {savingLessonId === activeLesson.id
+                      ? 'Enregistrement…'
+                      : activeLesson.completed
+                        ? 'Retirer « terminée »'
+                        : 'Marquer comme terminée'}
+                  </button>
+                  <button
+                    className="secondary-button"
+                    disabled={activeIndex >= lessons.length - 1}
+                    onClick={() => setActiveLessonId(lessons[activeIndex + 1]?.id)}
+                    type="button"
+                  >
+                    Leçon suivante
+                  </button>
+                </div>
+              </>
+            )}
+          </article>
         </div>
       )}
     </section>
@@ -1625,6 +1868,10 @@ function AppRoutes() {
           <Route path="/cours" element={<CourseCatalogPage />} />
           <Route path="/cours/:id" element={<CourseDetailsPage />} />
           <Route path="/mes-cours" element={<ProtectedRoute><MyCoursesPage /></ProtectedRoute>} />
+          <Route
+            path="/apprendre/:courseId"
+            element={<ProtectedRoute><LearningPage /></ProtectedRoute>}
+          />
           <Route
             path="/administration"
             element={<ProtectedRoute><AdminRoute><AdminPage /></AdminRoute></ProtectedRoute>}
